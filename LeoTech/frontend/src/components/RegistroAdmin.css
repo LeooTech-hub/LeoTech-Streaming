@@ -1,0 +1,108 @@
+/* src/components/RegistroAdmin.css */
+
+.registro-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 80vh; /* Centrado vertical */
+  padding: 20px;
+}
+
+.card-registro {
+  background-color: #fff;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 600px; /* Ancho máximo para que no se estire */
+  overflow: hidden;
+}
+
+.card-header-registro {
+  background-color: #212529; /* Negro suave */
+  color: white;
+  padding: 20px;
+  text-align: center;
+  border-bottom: 3px solid #dc3545; /* Línea roja decorativa */
+}
+
+.card-header-registro h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.card-body-registro {
+  padding: 30px;
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 600;
+  color: #333;
+}
+
+.form-control-custom {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  font-size: 14px;
+  transition: border-color 0.3s;
+}
+
+.form-control-custom:focus {
+  border-color: #0d6efd; /* Azul al seleccionar */
+  outline: none;
+}
+
+.input-code {
+  text-align: center;
+  letter-spacing: 5px;
+  font-weight: bold;
+  border-color: #dc3545; /* Borde rojo para el código */
+  background-color: #fff5f5;
+}
+
+.btn-group-custom {
+  display: flex;
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.btn-custom {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  border-radius: 5px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: opacity 0.3s;
+}
+
+.btn-primary-custom {
+  background-color: #0d6efd; /* Azul */
+  color: white;
+}
+
+.btn-secondary-custom {
+  background-color: #6c757d; /* Gris */
+  color: white;
+}
+
+.btn-danger-custom {
+  background-color: #dc3545; /* Rojo */
+  color: white;
+  margin-top: 10px;
+  width: 100%;
+}
+
+.btn-custom:hover {
+  opacity: 0.9;
+}

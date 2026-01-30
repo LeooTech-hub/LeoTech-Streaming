@@ -1,0 +1,228 @@
+/* --- App.css --- */
+
+/* 1. FUENTES Y VARIABLES GLOBALES */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --primary-color: #4e54c8; /* Azul moderno */
+  --secondary-color: #8f94fb; 
+  --success-color: #11998e; 
+  --success-secondary: #38ef7d;
+  --dark-text: #2c3e50;
+  --light-bg: #f4f7f6;
+  --card-shadow: 0 10px 20px rgba(0,0,0,0.05), 0 6px 6px rgba(0,0,0,0.07);
+}
+
+body {
+  font-family: 'Poppins', sans-serif;
+  background-color: var(--light-bg);
+  color: var(--dark-text);
+  margin: 0;
+  padding: 20px;
+}
+
+/* Título Principal */
+h1.text-center.my-4 {
+  font-weight: 700;
+  color: var(--primary-color);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 40px !important;
+}
+
+/* --- 2. TARJETAS GENERALES (Admin / Dashboard) --- */
+.card {
+  border: none;
+  border-radius: 15px;
+  box-shadow: var(--card-shadow);
+  transition: transform 0.3s ease;
+  overflow: hidden; /* Importante para que nada se salga de los bordes */
+  background-color: #fff;
+}
+
+.card:hover {
+  transform: translateY(-5px); 
+}
+
+.card-body {
+  padding: 25px;
+}
+
+/* Estilos específicos para las tarjetas de KPI (Colores) */
+.bg-success.text-white {
+  background: linear-gradient(45deg, var(--success-color), var(--success-secondary)) !important;
+}
+
+.bg-danger.text-white {
+  background: linear-gradient(45deg, #cb2d3e, #ef473a) !important;
+}
+
+.bg-warning.text-dark {
+  background: linear-gradient(45deg, #ffb347, #ffcc33) !important;
+  color: #fff !important; 
+}
+
+.card-title {
+  font-weight: 500;
+  font-size: 1.1rem;
+  opacity: 0.9;
+}
+
+.card-text.fs-4.fw-bold {
+  font-size: 2rem !important;
+  margin-top: 10px;
+}
+
+/* --- 3. BOTONES --- */
+.btn {
+  border-radius: 50px; 
+  padding: 10px 25px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  border: none;
+  box-shadow: 0 4px 6px rgba(50, 50, 93, 0.11), 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: all 0.2s;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 7px 14px rgba(50, 50, 93, 0.1), 0 3px 6px rgba(0, 0, 0, 0.08);
+}
+
+.btn-success {
+  background: linear-gradient(to right, var(--success-color), var(--success-secondary));
+}
+
+.btn-secondary, .btn-primary {
+  background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
+}
+
+/* --- 4. FORMULARIOS Y TABLAS (Admin) --- */
+.form-control, .form-select {
+  border-radius: 12px;
+  padding: 12px;
+  border: 2px solid #e1e5ea;
+  background-color: #fff;
+  transition: all 0.3s;
+}
+
+.form-control:focus, .form-select:focus {
+  border-color: var(--secondary-color);
+  box-shadow: 0 0 0 3px rgba(143, 148, 251, 0.2);
+}
+
+.p-4.border.rounded.bg-light.mb-4 {
+  background-color: #fff !important;
+  border: none !important;
+  box-shadow: var(--card-shadow);
+  border-radius: 20px !important;
+  padding: 35px !important;
+}
+
+.table-responsive {
+  border-radius: 15px;
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
+
+.table { margin-bottom: 0; background-color: #fff; }
+
+.table thead th {
+  background-color: var(--primary-color);
+  color: white;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.9rem;
+  border: none;
+  padding: 15px;
+}
+
+.table tbody td { padding: 15px; vertical-align: middle; border-color: #f0f2f5; }
+.table tbody tr:hover { background-color: #f8faff; }
+
+
+/* ========================================================= */
+/* --- 5. ESTILOS DE PRODUCTOS (CATÁLOGO) ---          */
+/* Esto controla el efecto "hover" y el botón del carrito  */
+/* ========================================================= */
+
+/* Tarjeta específica del producto en el catálogo */
+.card-producto {
+  position: relative; /* Necesario para posicionar el botón encima */
+  cursor: pointer;    /* Manito al pasar el mouse */
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  border: 1px solid #eee; /* Borde muy sutil */
+}
+
+/* Al pasar el mouse sobre la tarjeta */
+.card-producto:hover {
+  transform: translateY(-8px); /* Se eleva un poco más */
+  box-shadow: 0 15px 30px rgba(0,0,0,0.15); /* Sombra más fuerte */
+}
+
+/* EL BOTÓN "AÑADIR AL CARRITO" (Inicialmente oculto) */
+.btn-hover-carrito {
+  display: none; /* Oculto por defecto */
+  position: absolute;
+  bottom: 20px; /* Distancia desde abajo */
+  left: 50%;
+  transform: translateX(-50%); /* Centrado horizontalmente */
+  width: 85%; /* Ancho del botón */
+  z-index: 10; /* Asegura que esté por encima de todo */
+  background-color: #dc3545; /* Rojo tipo "Oferta" */
+  color: white;
+  border-radius: 30px;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+/* ANIMACIÓN: Cuando el mouse entra en .card-producto, el botón aparece */
+.card-producto:hover .btn-hover-carrito {
+  display: block;
+  animation: subirFadeIn 0.3s ease-out forwards;
+}
+
+/* Definición de la animación de subida */
+@keyframes subirFadeIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 40px); /* Empieza más abajo */
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0); /* Termina en su sitio */
+  }
+}
+
+/* Ajuste de la imagen del producto para que se vea limpia */
+.card-producto img {
+  transition: transform 0.3s ease;
+}
+
+.card-producto:hover img {
+  transform: scale(1.05); /* Zoom sutil a la imagen al pasar el mouse */
+}
+
+/* Contenedor para separar el texto del botón principal */
+.register-section {
+    margin-top: 15px;
+    margin-bottom: 10px;
+    font-size: 0.9rem; /* Un poco más pequeño que los inputs */
+    color: #666; /* Gris suave para el texto de pregunta */
+    text-align: center;
+}
+
+/* Estilo del enlace para que resalte pero no compita con el botón principal */
+.register-link {
+    color: #6a62d2; /* He tomado este color aproximado de tu botón "Ingresar" */
+    font-weight: 600; /* Un poco más grueso para que se note */
+    text-decoration: none;
+    transition: color 0.3s ease;
+    cursor: pointer;
+}
+
+.register-link:hover {
+    color: #4a42b2; /* Un tono un poco más oscuro al pasar el mouse */
+    text-decoration: underline;
+}

@@ -1,0 +1,153 @@
+/* =========================================
+   CONTENEDOR PRINCIPAL
+========================================= */
+.catalogo-container {
+  max-width: 1200px;
+  margin: 0 auto; /* Centra todo el contenido en la pantalla */
+  padding: 40px 20px;
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; /* Fuente moderna */
+  background-color: #f9fbfd; /* Fondo muy clarito para que resalten las tarjetas */
+  min-height: 100vh;
+}
+
+.titulo-seccion {
+  text-align: center;
+  font-size: 2rem;
+  color: #1a1a1a;
+  margin-bottom: 40px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  position: relative;
+}
+
+/* Pequeña línea decorativa debajo del título */
+.titulo-seccion::after {
+    content: '';
+    display: block;
+    width: 60px;
+    height: 4px;
+    background: #22c55e; /* Color verde de LeoTech */
+    margin: 15px auto 0;
+    border-radius: 2px;
+}
+
+/* =========================================
+   LA CUADRÍCULA (GRID) RESPONSIVA
+========================================= */
+.productos-grid {
+  display: grid;
+  /* Esto hace la magia: crea tantas columnas como quepan, de mínimo 260px de ancho */
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 30px; /* Espacio entre las tarjetas */
+}
+
+/* =========================================
+   LA TARJETA DEL PRODUCTO (EL DISEÑO "NEXUS")
+========================================= */
+.producto-card {
+  background: #ffffff;
+  border-radius: 20px; /* Esquinas bien redondeadas */
+  overflow: hidden; /* Para que la imagen no se salga de las esquinas */
+  /* Sombra suave inicial */
+  box-shadow: 0 10px 20px rgba(0,0,0,0.05); 
+  transition: all 0.3s ease; /* Suaviza la animación al pasar el mouse */
+  position: relative; /* Necesario para posicionar la etiqueta de Oferta */
+  border: 1px solid #f0f0f0;
+}
+
+/* EFECTO AL PASAR EL MOUSE (HOVER) */
+.producto-card:hover {
+  transform: translateY(-10px); /* La tarjeta "flota" hacia arriba */
+  /* La sombra se hace más grande e intensa */
+  box-shadow: 0 20px 40px rgba(0,0,0,0.12); 
+  border-color: transparent;
+}
+
+/* ETIQUETA "OFERTA" */
+.badge-oferta {
+  position: absolute;
+  top: 15px;
+  left: 15px;
+  background: linear-gradient(45deg, #ff416c, #ff4b2b); /* Degradado rojo moderno */
+  color: white;
+  padding: 6px 14px;
+  border-radius: 30px;
+  font-size: 0.75rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  z-index: 2;
+  box-shadow: 0 4px 10px rgba(255, 75, 43, 0.3);
+}
+
+/* =========================================
+   IMAGEN DEL PRODUCTO
+========================================= */
+.producto-card img {
+  width: 100%;
+  height: 240px; /* Altura fija para que todas se vean alineadas */
+  object-fit: contain; /* Muestra la imagen completa sin recortarla ni deformarla */
+  padding: 25px;
+  background-color: #fff;
+  transition: transform 0.3s ease;
+}
+
+/* Pequeño zoom a la imagen al pasar el mouse por la tarjeta */
+.producto-card:hover img {
+    transform: scale(1.05);
+}
+
+/* =========================================
+   INFORMACIÓN Y BOTÓN
+========================================= */
+.info {
+  padding: 25px;
+  text-align: center;
+  background: #fff;
+  border-top: 1px solid #f8f8f8;
+}
+
+.info h4 {
+  /* ... tus otros estilos ... */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2; /* <--- AGREGA ESTA LÍNEA PARA QUITAR EL AVISO */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* ... */
+}
+
+.precio {
+  font-size: 1.6rem;
+  color: #22c55e; /* Verde vibrante para el precio */
+  font-weight: 900;
+  margin-bottom: 20px;
+  letter-spacing: -0.5px;
+}
+
+/* BOTÓN DE WHATSAPP */
+.btn-wsp {
+  width: 100%;
+  padding: 14px;
+  /* Color oficial de WhatsApp */
+  background-color: #25d366; 
+  color: white;
+  border: none;
+  border-radius: 50px; /* Botón estilo píldora */
+  font-weight: bold;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px; /* Espacio entre el icono y el texto */
+  box-shadow: 0 4px 10px rgba(37, 211, 102, 0.3);
+}
+
+/* Efecto al pasar el mouse sobre el botón */
+.btn-wsp:hover {
+  background-color: #128c7e; /* Un verde un poco más oscuro */
+  transform: translateY(-2px);
+  box-shadow: 0 6px 15px rgba(37, 211, 102, 0.4);
+}

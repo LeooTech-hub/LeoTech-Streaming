@@ -1,0 +1,32 @@
+/* Color normal de los links */
+.nav-link {
+    color: #ffffffb3 !important;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+/* --- EFECTO DE BOTÓN ACTIVO --- */
+.nav-link.active {
+    color: #22c55e !important; /* Verde vibrante de LeoTech */
+    font-weight: bold;
+    text-shadow: 0 0 8px rgba(34, 197, 94, 0.5); /* Pequeño brillo */
+}
+
+/* Línea brillante debajo del botón activo */
+.nav-link.active::after {
+    content: '';
+    display: block;
+    width: 100%;
+    height: 2px;
+    background: #22c55e;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    box-shadow: 0 0 10px #22c55e;
+}
+
+/* Efecto al pasar el mouse por los otros botones */
+.nav-link:hover {
+    color: #ffffff !important;
+    transform: translateY(-1px);
+}

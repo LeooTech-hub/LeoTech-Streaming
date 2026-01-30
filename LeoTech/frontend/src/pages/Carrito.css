@@ -1,0 +1,176 @@
+/* Contenedor principal para centrar y dar margen */
+.carrito-page-container {
+  max-width: 1200px;
+  margin: 40px auto;
+  padding: 0 20px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  color: #333;
+}
+
+.carrito-content {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 40px;
+  justify-content: space-between;
+}
+
+/* --- ESTILOS DE LA TABLA (IMAGEN 2) --- */
+.carrito-items-section {
+  flex: 2; /* Toma más espacio */
+  min-width: 300px;
+}
+
+.cart-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.cart-item-row {
+  border-bottom: 1px solid #eee;
+}
+
+.cart-item-row td {
+  padding: 20px 10px;
+  vertical-align: middle;
+}
+
+.remove-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #999;
+  cursor: pointer;
+}
+
+.remove-btn:hover {
+  color: #ff0000;
+}
+
+.product-thumb {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+}
+
+.product-name {
+  font-weight: 600;
+  color: #333;
+  display: block;
+  max-width: 250px;
+}
+
+.qty-input {
+  width: 50px;
+  padding: 8px;
+  border: 1px solid #ddd;
+  text-align: center;
+  border-radius: 4px;
+}
+
+.col-price, .col-subtotal {
+  font-weight: 500;
+  color: #555;
+}
+
+/* --- ESTILOS DE LA BOLETA (IMAGEN 1) --- */
+.carrito-totals-section {
+  flex: 1; /* Toma menos espacio */
+  background-color: #f7f7f7; /* Color de fondo gris claro de la imagen */
+  padding: 30px;
+  min-width: 300px;
+  border-radius: 2px;
+  height: fit-content;
+}
+
+.totals-header {
+  font-size: 16px;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-top: 0;
+  margin-bottom: 20px;
+}
+
+.divider {
+  border: 0;
+  border-top: 1px solid #ddd;
+  margin: 20px 0;
+}
+
+.totals-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.totals-row .label {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.totals-row .value {
+  font-weight: 700;
+  font-size: 14px;
+  color: #333;
+}
+
+/* Estilos específicos para Envío */
+.shipping-row {
+  align-items: flex-start;
+}
+
+.shipping-details {
+  text-align: right;
+  max-width: 60%;
+}
+
+.shipping-title {
+  display: block;
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 5px;
+}
+
+.shipping-note {
+  font-size: 12px;
+  color: #666;
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* Estilos para Total Final */
+.total-final .value {
+  font-size: 24px;
+  color: #333;
+}
+
+/* Botón Rojo */
+.checkout-btn {
+  width: 100%;
+  background-color: #ff0000; /* Rojo brillante */
+  color: white;
+  border: none;
+  padding: 15px;
+  font-weight: 700;
+  text-transform: uppercase;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.3s;
+}
+
+.checkout-btn:hover {
+  background-color: #cc0000;
+}
+
+/* --- ENLACE INFERIOR --- */
+.continue-shopping {
+  margin-top: 40px;
+  text-align: center; /* O right si prefieres alineado */
+}
+
+.continue-link {
+  text-decoration: none;
+  color: #333;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 14px;
+}
