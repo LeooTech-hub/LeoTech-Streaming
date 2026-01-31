@@ -7,8 +7,13 @@ function VistaStreaming({ api }) {
   const [dataClientes, setDataClientes] = useState([]);
   const [dataInventario, setDataInventario] = useState([]);
 
+  // --- ESTADO NOTIFICACIONES ---
+  const [mostrarNotificaciones, setMostrarNotificaciones] = useState(false);
+
   // --- FILTROS ---
   const [filtroCliente, setFiltroCliente] = useState('Todos');
+  const [filtroStock, setFiltroStock] = useState('Todos');
+  
   const LISTA_PLATAFORMAS = ['Netflix', 'Disney+', 'Hbo Max', 'Prime Video', 'Spotify', 'Crunchyroll', 'Vix', 'Paramount'];
 
   // --- ESTADOS EDICIÓN ---
@@ -53,25 +58,40 @@ function VistaStreaming({ api }) {
     return acc;
   }, {});
 
-  // FILTRADO INICIAL
-  const clientesFiltrados = dataClientes.filter(c => filtroCliente === 'Todos' ? true : c.servicio === filtroCliente);
+  const conteoStock = dataInventario.reduce((acc, curr) => {
+    acc[curr.servicio] = (acc[curr.servicio] || 0) + 1;
+    return acc;
+  }, {});
 
-  // 🧠 LÓGICA DE AGRUPACIÓN (NUEVO)
+  // --- LÓGICA DE NOTIFICACIONES ---
+  const clientesPorVencer = useMemo(() => {
+    const hoy = dayjs();
+    return dataClientes.filter(c => {
+        if (!c.fecha_finalizacion && !c.fecha_fin) return false;
+        const fechaFin = dayjs(c.fecha_finalizacion || c.fecha_fin);
+        const diasRestantes = fechaFin.diff(hoy, 'day');
+        return diasRestantes <= 3;
+    }).sort((a, b) => dayjs(a.fecha_finalizacion || a.fecha_fin) - dayjs(b.fecha_finalizacion || b.fecha_fin));
+  }, [dataClientes]);
+
+  // FILTRADO
+  const clientesFiltrados = dataClientes.filter(c => filtroCliente === 'Todos' ? true : c.servicio === filtroCliente);
+  const stockFiltrado = dataInventario.filter(i => filtroStock === 'Todos' ? true : i.servicio === filtroStock);
+
+  // AGRUPACIÓN
   const clientesAgrupados = useMemo(() => {
     const grupos = {};
     clientesFiltrados.forEach(c => {
       const servicio = c.servicio || 'Otros';
       const correo = c.correo || 'Sin Correo Asignado';
-      
       if (!grupos[servicio]) grupos[servicio] = {};
       if (!grupos[servicio][correo]) grupos[servicio][correo] = [];
-      
       grupos[servicio][correo].push(c);
     });
     return grupos;
   }, [clientesFiltrados]);
 
-  // COLORES DE MARCA
+  // COLORES MARCA
   const getBrandColor = (servicio) => {
     const s = servicio.toLowerCase();
     if(s.includes('netflix')) return '#E50914';
@@ -83,7 +103,7 @@ function VistaStreaming({ api }) {
     return '#343a40';
   };
 
-  // --- HANDLERS (Logica) ---
+  // --- HANDLERS ---
   const handleWheel = (e) => e.target.blur();
   const handleEliminar = (id, tipo) => { 
     if (!window.confirm("¿Eliminar?")) return; 
@@ -153,9 +173,87 @@ function VistaStreaming({ api }) {
 
 
   return (
-    <div className="row">
+    <div className="row position-relative">
+        
+        {/* 🔥 BOTÓN FLOTANTE NOTIFICACIONES */}
+        <div className="position-absolute top-0 end-0 mt-n4 me-2" style={{zIndex: 1000}}>
+            <button 
+                className="btn btn-light shadow position-relative rounded-circle border" 
+                onClick={() => setMostrarNotificaciones(!mostrarNotificaciones)}
+                style={{width: '50px', height: '50px'}}
+            >
+                <i className={`bi ${mostrarNotificaciones ? 'bi-x-lg' : 'bi-bell-fill text-warning'}`} style={{fontSize: '1.2rem'}}></i>
+                {clientesPorVencer.length > 0 && !mostrarNotificaciones && (
+                    <span className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                        {clientesPorVencer.length}
+                        <span className="visually-hidden">vencimientos</span>
+                    </span>
+                )}
+            </button>
+        </div>
+
+        {/* 📬 CENTRO DE NOTIFICACIONES */}
+        {mostrarNotificaciones && (
+            <div className="col-12 mb-4 animate__animated animate__fadeInDown">
+                <div className="card shadow border-0" style={{backgroundColor: '#fff8e1', borderLeft: '5px solid #ffc107'}}>
+                    <div className="card-header bg-transparent border-0 d-flex justify-content-between align-items-center">
+                        <h5 className="mb-0 fw-bold text-dark">
+                            <i className="bi bi-exclamation-triangle-fill text-warning me-2"></i>
+                            Vencimientos Próximos ({clientesPorVencer.length})
+                        </h5>
+                        <button className="btn btn-sm btn-outline-secondary rounded-pill" onClick={()=>setMostrarNotificaciones(false)}>Cerrar</button>
+                    </div>
+                    <div className="card-body p-0">
+                        {clientesPorVencer.length === 0 ? (
+                            <div className="p-4 text-center text-muted">🎉 ¡Todo al día! No hay vencimientos cercanos.</div>
+                        ) : (
+                            <div className="list-group list-group-flush">
+                                {clientesPorVencer.map(c => {
+                                    const fechaFin = dayjs(c.fecha_finalizacion || c.fecha_fin);
+                                    const diasRestantes = fechaFin.diff(dayjs(), 'day');
+                                    let estado = { color: 'bg-warning', texto: 'Pronto' };
+                                    if (diasRestantes < 0) estado = { color: 'bg-danger', texto: 'VENCIDO' };
+                                    if (diasRestantes === 0) estado = { color: 'bg-danger', texto: 'HOY' };
+                                    
+                                    // 🛡️ BLINDAJE AQUÍ: Si no hay celular, pone vacío '' para que no explote
+                                    const celular = c.numero_celular || c.celular || '';
+                                    
+                                    const mensajeWsp = `Hola ${c.nombre_cliente || c.nombre}, te saluda LeoTech. Tu cuenta de ${c.servicio} vence el ${fechaFin.format('DD/MM')}. ¿Desearías renovar? 🚀`;
+                                    
+                                    // Solo crea el link si hay celular, sino pone '#'
+                                    const linkWsp = celular ? `https://wa.me/51${celular.replace(/\s/g, '')}?text=${encodeURIComponent(mensajeWsp)}` : '#';
+
+                                    return (
+                                        <div key={c.id} className="list-group-item d-flex flex-wrap align-items-center justify-content-between py-3" style={{backgroundColor: diasRestantes < 0 ? '#fff5f5' : 'transparent'}}>
+                                            <div className="d-flex align-items-center gap-3">
+                                                <div className={`badge ${estado.color} rounded-pill p-2`} style={{minWidth:'70px'}}>{estado.texto}</div>
+                                                <div>
+                                                    <div className="fw-bold fs-6">{c.nombre_cliente || c.nombre}</div>
+                                                    <div className="small text-muted">{c.servicio} • Perfil: {c.perfil}</div>
+                                                    <div className="small fw-bold text-danger">Vence: {fechaFin.format('DD/MM/YYYY')}</div>
+                                                </div>
+                                            </div>
+                                            <div className="mt-2 mt-md-0">
+                                                {celular ? (
+                                                    <a href={linkWsp} target="_blank" rel="noreferrer" className="btn btn-success btn-sm rounded-pill fw-bold px-3 shadow-sm">
+                                                        <i className="bi bi-whatsapp me-2"></i>Cobrar
+                                                    </a>
+                                                ) : (
+                                                    <span className="badge bg-secondary">Sin número</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        )}
+
         {/* DASHBOARD SUPERIOR */}
-        <div className="col-12 mb-5">
+        <div className="col-12 mb-5 pt-3">
           <div className="row g-3">
               <div className="col-md-4"><div className="card text-white bg-success shadow-sm border-0" style={{borderRadius: '15px'}}><div className="card-body"><div className="d-flex justify-content-between align-items-center"><div><h6 className="card-title mb-0 opacity-75">Ventas Totales</h6><h3 className="fw-bold my-2">S/ {totalIngresosClientes.toFixed(2)}</h3><small className="opacity-75">{dataClientes.length} clientes activos</small></div><i className="bi bi-cash-coin fs-1 opacity-50"></i></div></div></div></div>
               <div className="col-md-4"><div className="card text-white bg-primary shadow-sm border-0" style={{borderRadius: '15px'}}><div className="card-body"><div className="d-flex justify-content-between align-items-center"><div><h6 className="card-title mb-0 opacity-75">Ganancia Real</h6><h3 className="fw-bold my-2">S/ {gananciaNetaClientes.toFixed(2)}</h3><small className="opacity-75">Inversión Stock: S/ {inversionRealStock.toFixed(2)}</small></div><i className="bi bi-graph-up-arrow fs-1 opacity-50"></i></div></div></div></div>
@@ -197,8 +295,6 @@ function VistaStreaming({ api }) {
         <div className="col-md-7 mb-4">
             <div className="d-flex justify-content-between align-items-center mb-3">
               <h5 className="mb-0 fw-bold text-dark"><i className="bi bi-people-fill me-2"></i>Gestión de Cuentas</h5>
-              
-              {/* FILTRO DROPDOWN */}
               <div className="dropdown">
                 <button className="btn btn-dark dropdown-toggle rounded-pill fw-bold shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false" style={{fontSize:'0.85rem'}}>
                   <i className="bi bi-funnel-fill me-2"></i>{filtroCliente === 'Todos' ? 'Todas las Apps' : filtroCliente}
@@ -213,33 +309,27 @@ function VistaStreaming({ api }) {
               </div>
             </div>
 
-            {/* LISTA DE AGRUPACIONES */}
             <div style={{maxHeight:'800px', overflowY:'auto', paddingRight:'5px'}}>
               {Object.keys(clientesAgrupados).length === 0 && (
                 <div className="alert alert-secondary text-center">No hay clientes activos en esta categoría.</div>
               )}
-
               {Object.keys(clientesAgrupados).map(servicio => {
                 const cuentasDeEsteServicio = clientesAgrupados[servicio];
                 const colorMarca = getBrandColor(servicio);
-
                 return (
                   <div key={servicio} className="mb-4">
-                    {/* CABECERA DEL SERVICIO */}
                     <div className="d-flex align-items-center mb-2">
                         <span className="badge rounded-pill me-2" style={{backgroundColor: colorMarca, fontSize:'0.9rem'}}>{servicio}</span>
                         <div style={{height:'1px', backgroundColor: colorMarca, flexGrow:1, opacity:0.3}}></div>
                     </div>
-
-                    {/* LISTA DE CUENTAS (CORREOS) */}
                     {Object.keys(cuentasDeEsteServicio).map(correo => {
                       const clientesEnCuenta = cuentasDeEsteServicio[correo];
-                      // Tomamos la contraseña del primer cliente (asumiendo que es la misma para la cuenta)
-                      const passwordCuenta = clientesEnCuenta[0].contrasena || '???';
+                      
+                      const stockEncontrado = dataInventario.find(i => i.correo.trim().toLowerCase() === correo.trim().toLowerCase());
+                      const passwordCuenta = stockEncontrado ? stockEncontrado.contrasena : (clientesEnCuenta[0].contrasena || '???');
 
                       return (
                         <div key={correo} className="card shadow-sm border-0 mb-3" style={{overflow:'hidden', borderRadius:'12px'}}>
-                          {/* CABECERA DE LA CUENTA */}
                           <div className="card-header bg-light border-0 d-flex justify-content-between align-items-center py-2">
                              <div className="d-flex align-items-center gap-2" style={{overflow:'hidden'}}>
                                 <i className="bi bi-envelope-at-fill text-muted"></i>
@@ -248,8 +338,6 @@ function VistaStreaming({ api }) {
                              </div>
                              <span className="badge bg-primary rounded-pill">{clientesEnCuenta.length} Perfiles</span>
                           </div>
-
-                          {/* TABLA DE CLIENTES EN ESTA CUENTA */}
                           <div className="table-responsive">
                             <table className="table table-hover mb-0 align-middle text-nowrap">
                                 <tbody>
@@ -257,20 +345,9 @@ function VistaStreaming({ api }) {
                                      const diasRestantes = dayjs(c.fecha_finalizacion || c.fecha_fin).diff(dayjs(), 'day');
                                      return (
                                        <tr key={c.id}>
-                                         <td className="ps-3" style={{width:'30%'}}>
-                                            <div className="fw-bold text-dark small">{c.nombre_cliente || c.nombre}</div>
-                                            <div className="text-success small" style={{fontSize:'0.7rem'}}><i className="bi bi-whatsapp me-1"></i>{c.numero_celular || c.celular}</div>
-                                         </td>
-                                         <td>
-                                            <div className="badge bg-light text-dark border">
-                                              <i className="bi bi-person-circle me-1"></i>{c.perfil} <span className="text-muted border-start ps-1 ms-1">{c.pin_perfil || c.pin}</span>
-                                            </div>
-                                         </td>
-                                         <td className="text-center">
-                                            <span className={`badge rounded-pill ${diasRestantes < 3 ? 'bg-danger' : 'bg-success'}`} style={{fontSize:'0.75rem'}}>
-                                              {(c.fecha_finalizacion || c.fecha_fin) ? dayjs(c.fecha_finalizacion || c.fecha_fin).add(10,'hour').format('DD/MM') : '-'}
-                                            </span>
-                                         </td>
+                                         <td className="ps-3" style={{width:'30%'}}><div className="fw-bold text-dark small">{c.nombre_cliente || c.nombre}</div><div className="text-success small" style={{fontSize:'0.7rem'}}><i className="bi bi-whatsapp me-1"></i>{c.numero_celular || c.celular}</div></td>
+                                         <td><div className="badge bg-light text-dark border"><i className="bi bi-person-circle me-1"></i>{c.perfil} <span className="text-muted border-start ps-1 ms-1">{c.pin_perfil || c.pin}</span></div></td>
+                                         <td className="text-center"><span className={`badge rounded-pill ${diasRestantes < 3 ? 'bg-danger' : 'bg-success'}`} style={{fontSize:'0.75rem'}}>{(c.fecha_finalizacion || c.fecha_fin) ? dayjs(c.fecha_finalizacion || c.fecha_fin).add(10,'hour').format('DD/MM') : '-'}</span></td>
                                          <td className="text-end pe-3">
                                             <button onClick={() => handleEditarCliente(c)} className="btn btn-sm btn-link p-0 me-2 text-decoration-none" title="Editar">✏️</button>
                                             <button onClick={() => handleEliminar(c.id, 'cliente')} className="btn btn-sm btn-link p-0 text-decoration-none" title="Eliminar">❌</button>
@@ -293,6 +370,7 @@ function VistaStreaming({ api }) {
         {/* SECCIÓN INFERIOR: STOCK DE CUENTAS (INVENTARIO) */}
         <div className="col-12 mt-4 mb-4"><div className="d-flex align-items-center"><div className="flex-grow-1" style={{height:'2px', backgroundColor:'#ffc107'}}></div><h4 className="mx-4 fw-bold mb-0" style={{color: '#ffc107', letterSpacing:'1px'}}><i className="bi bi-key-fill me-2"></i>GESTIÓN DE STOCK (VACÍAS)</h4><div className="flex-grow-1" style={{height:'2px', backgroundColor:'#ffc107'}}></div></div></div>
         
+        {/* FORMULARIO STOCK */}
         <div className="col-md-5 mb-4">
             <div className="card p-4 shadow-sm border-0 bg-white" style={{borderRadius: '10px'}}>
                 <h5 className="fw-bold mb-3" style={{color: '#ffc107'}}>{editandoStock ? '✏️ EDITAR STOCK' : '+ NUEVA CUENTA (STOCK)'}</h5>
@@ -312,7 +390,51 @@ function VistaStreaming({ api }) {
             </div>
         </div>
 
-        <div className="col-md-7"><div className="card shadow-sm border-0" style={{borderRadius: '10px', overflow: 'hidden'}}><div className="p-3 bg-white border-bottom"><h5 className="mb-0 text-dark">Stock Disponible ({dataInventario.length})</h5></div><div className="table-responsive"><table className="table mb-0 align-middle"><thead className="text-white" style={{backgroundColor: '#ffc107', color:'black'}}><tr><th className="py-3 ps-3 text-dark">CUENTA</th><th className="py-3 text-dark">SERVICIO/PASS</th><th className="py-3 text-center text-dark">COSTO</th><th className="py-3 text-center text-dark">VENCE</th><th className="py-3 text-center text-dark">ACCIÓN</th></tr></thead><tbody>{dataInventario.map(i => (<tr key={i.id} className="border-bottom"><td className="fw-bold ps-3">{i.correo}</td><td><div>{i.servicio}</div><div className="text-muted small">{i.contrasena}</div></td><td className="text-center fw-bold text-secondary">S/ {i.costo || '0'}</td><td className="text-center"><span className="badge rounded-pill" style={{backgroundColor: dayjs(i.fecha_vencimiento).add(10, 'hour').diff(dayjs(), 'day') < 5 ? '#dc3545' : '#198754'}}>{i.fecha_vencimiento ? dayjs(i.fecha_vencimiento).add(10, 'hour').format('DD/MM') : '-'}</span></td><td className="text-center"><div className="d-flex justify-content-center gap-2"><button onClick={() => handleEditarStock(i)} className="btn btn-sm fw-bold shadow-sm" style={{backgroundColor:'white', color:'#0d6efd', border:'1px solid #dee2e6', borderRadius:'20px', padding:'5px 15px'}}>editar</button><button onClick={() => handleEliminar(i.id, 'inventario')} className="btn btn-sm fw-bold shadow-sm" style={{backgroundColor:'white', color:'#dc3545', border:'1px solid #dee2e6', borderRadius:'20px', padding:'5px 15px'}}>eliminar</button></div></td></tr>))}</tbody></table></div></div></div>
+        {/* LISTA STOCK CON FILTRO NUEVO */}
+        <div className="col-md-7">
+          <div className="card shadow-sm border-0" style={{borderRadius: '10px', overflow: 'hidden'}}>
+            
+            {/* CABECERA CON FILTRO INTELIGENTE */}
+            <div className="p-3 bg-white border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <h5 className="mb-0 text-dark">Stock Disponible ({stockFiltrado.length})</h5>
+                
+                <div className="dropdown">
+                  <button className="btn btn-warning dropdown-toggle rounded-pill fw-bold shadow-sm text-dark" type="button" data-bs-toggle="dropdown" aria-expanded="false" style={{fontSize:'0.85rem'}}>
+                    <i className="bi bi-funnel-fill me-2"></i>{filtroStock === 'Todos' ? 'Filtrar Stock' : filtroStock}
+                  </button>
+                  <ul className="dropdown-menu dropdown-menu-end shadow">
+                    <li><button className={`dropdown-item ${filtroStock==='Todos'?'active':''}`} onClick={() => setFiltroStock('Todos')}>Todos ({dataInventario.length})</button></li>
+                    <li><hr className="dropdown-divider"/></li>
+                    {LISTA_PLATAFORMAS.map(plat => (
+                      <li key={plat}>
+                        <button className={`dropdown-item d-flex justify-content-between ${filtroStock===plat?'active':''}`} onClick={() => setFiltroStock(plat)}>
+                          {plat} <span className="badge bg-secondary ms-2">{conteoStock[plat] || 0}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+            </div>
+
+            <div className="table-responsive">
+              <table className="table mb-0 align-middle">
+                <thead className="text-white" style={{backgroundColor: '#ffc107', color:'black'}}><tr><th className="py-3 ps-3 text-dark">CUENTA</th><th className="py-3 text-dark">SERVICIO/PASS</th><th className="py-3 text-center text-dark">COSTO</th><th className="py-3 text-center text-dark">VENCE</th><th className="py-3 text-center text-dark">ACCIÓN</th></tr></thead>
+                <tbody>
+                  {stockFiltrado.map(i => (
+                    <tr key={i.id} className="border-bottom">
+                      <td className="fw-bold ps-3">{i.correo}</td>
+                      <td><div>{i.servicio}</div><div className="text-muted small">{i.contrasena}</div></td>
+                      <td className="text-center fw-bold text-secondary">S/ {i.costo || '0'}</td>
+                      <td className="text-center"><span className="badge rounded-pill" style={{backgroundColor: dayjs(i.fecha_vencimiento).add(10, 'hour').diff(dayjs(), 'day') < 5 ? '#dc3545' : '#198754'}}>{i.fecha_vencimiento ? dayjs(i.fecha_vencimiento).add(10, 'hour').format('DD/MM') : '-'}</span></td>
+                      <td className="text-center"><div className="d-flex justify-content-center gap-2"><button onClick={() => handleEditarStock(i)} className="btn btn-sm fw-bold shadow-sm" style={{backgroundColor:'white', color:'#0d6efd', border:'1px solid #dee2e6', borderRadius:'20px', padding:'5px 15px'}}>editar</button><button onClick={() => handleEliminar(i.id, 'inventario')} className="btn btn-sm fw-bold shadow-sm" style={{backgroundColor:'white', color:'#dc3545', border:'1px solid #dee2e6', borderRadius:'20px', padding:'5px 15px'}}>eliminar</button></div></td>
+                    </tr>
+                  ))}
+                  {stockFiltrado.length === 0 && <tr><td colSpan="5" className="text-center text-muted py-4">No tienes stock de {filtroStock} 😔</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
     </div>
   );
 }
