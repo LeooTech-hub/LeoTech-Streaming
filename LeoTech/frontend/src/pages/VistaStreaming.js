@@ -14,7 +14,7 @@ function VistaStreaming({ api }) {
   const [filtroCliente, setFiltroCliente] = useState('Todos');
   const [filtroStock, setFiltroStock] = useState('Todos');
   
-  const LISTA_PLATAFORMAS = ['Netflix', 'Disney+', 'Hbo Max', 'Prime Video', 'Spotify', 'Crunchyroll', 'Vix', 'Paramount'];
+  const LISTA_PLATAFORMAS = ['Netflix', 'Hbo Max', 'Disney+', 'Prime Video', 'Spotify', 'Crunchyroll', 'Vix', 'Paramount'];
 
   // --- ESTADOS EDICIÓN ---
   const [editandoCliente, setEditandoCliente] = useState(false);
@@ -94,12 +94,12 @@ function VistaStreaming({ api }) {
   // COLORES MARCA
   const getBrandColor = (servicio) => {
     const s = servicio.toLowerCase();
-    if(s.includes('netflix')) return '#E50914';
-    if(s.includes('disney')) return '#113CCF';
-    if(s.includes('max') || s.includes('hbo')) return '#991EEB';
-    if(s.includes('prime')) return '#00A8E1';
-    if(s.includes('spotify')) return '#1DB954';
-    if(s.includes('crunchyroll')) return '#F47521';
+    if(s.includes('Detflix')) return '#E50914';
+    if(s.includes('Disney')) return '#113CCF';
+    if(s.includes('Hbo max') || s.includes('hbo')) return '#991EEB';
+    if(s.includes('Prime Video')) return '#00A8E1';
+    if(s.includes('Spotify')) return '#1DB954';
+    if(s.includes('Crunchyroll')) return '#F47521';
     return '#343a40';
   };
 
