@@ -17,12 +17,12 @@ function Admin() {
         <button 
             className={`btn rounded-pill px-4 fw-bold ${pestanaActiva==='productos'?'btn-dark':'btn-light shadow-sm'}`} 
             onClick={()=>setPestanaActiva('productos')}>
-            Productos y Gastos
+            PRODUCTOS Y GASTOS
         </button>
         <button 
             className={`btn rounded-pill px-4 fw-bold ${pestanaActiva==='clientes'?'btn-dark':'btn-light shadow-sm'}`} 
             onClick={()=>setPestanaActiva('clientes')}>
-            Streaming
+            STREAMING
         </button>
       </div>
 
