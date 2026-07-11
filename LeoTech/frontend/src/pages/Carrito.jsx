@@ -12,8 +12,7 @@ const Carrito = ({ carrito, eliminarDelCarrito, actualizarCantidad }) => {
   useEffect(() => {
     // Usamos reduce sobre el array 'carrito' que viene de App.js
     const newSubtotal = carrito.reduce((acc, item) => {
-      // Aseguramos que el precio sea un número por si viene como string
-      return acc + (Number(item.precio) * item.cantidadElegida);
+      return acc + (Number(item.precio) * Number(item.cantidadElegida || item.cantidad || 1));
     }, 0);
     
     setSubtotal(newSubtotal);
@@ -22,7 +21,7 @@ const Carrito = ({ carrito, eliminarDelCarrito, actualizarCantidad }) => {
   // Manejador intermedio para validar el input antes de llamar a App.js
   const handleChangeInput = (id, valor) => {
     const cantidad = parseInt(valor);
-    if (cantidad >= 1) {
+    if (!isNaN(cantidad) && cantidad >= 1) {
       actualizarCantidad(id, cantidad);
     }
   };
@@ -64,7 +63,7 @@ const Carrito = ({ carrito, eliminarDelCarrito, actualizarCantidad }) => {
                   {/* Imagen (usamos item.img o item.imagen según tu DB) */}
                   <td className="col-img">
                     <img 
-                      src={item.img || item.imagen || "https://via.placeholder.com/150"} 
+                      src={item.imagen_url || item.img || item.imagen || "https://via.placeholder.com/150"} 
                       alt={item.nombre} 
                       className="product-thumb" 
                     />
@@ -85,7 +84,7 @@ const Carrito = ({ carrito, eliminarDelCarrito, actualizarCantidad }) => {
                     <input 
                       type="number"
                       min="1"
-                      value={item.cantidadElegida} 
+                      value={item.cantidadElegida || item.cantidad || 1} 
                       onChange={(e) => handleChangeInput(item.id, e.target.value)}
                       className="qty-input"
                     />
@@ -93,7 +92,7 @@ const Carrito = ({ carrito, eliminarDelCarrito, actualizarCantidad }) => {
                   
                   {/* Subtotal del Item */}
                   <td className="col-subtotal">
-                    S/{(Number(item.precio) * item.cantidadElegida).toFixed(2)}
+                    S/{(Number(item.precio) * Number(item.cantidadElegida || item.cantidad || 1)).toFixed(2)}
                   </td>
                 </tr>
               ))}

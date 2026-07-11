@@ -7,7 +7,7 @@ import axios from 'axios';
 // ==============================================================
 const isLocal = window.location.hostname.includes("localhost") || window.location.hostname.includes("192.168");
 const API_URL = isLocal 
-  ? "http://192.168.1.5:8081" 
+  ? "http://localhost:8081" 
   : "https://leotech-streaming.onrender.com"; 
 // ==============================================================
 

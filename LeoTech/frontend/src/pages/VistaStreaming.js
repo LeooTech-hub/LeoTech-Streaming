@@ -94,7 +94,7 @@ function VistaStreaming({ api }) {
   // COLORES MARCA
   const getBrandColor = (servicio) => {
     const s = servicio.toLowerCase();
-    if(s.includes('Detflix')) return '#E50914';
+    if(s.includes('Netflix')) return '#E50914';
     if(s.includes('Disney')) return '#113CCF';
     if(s.includes('Hbo max') || s.includes('hbo')) return '#991EEB';
     if(s.includes('Prime Video')) return '#00A8E1';

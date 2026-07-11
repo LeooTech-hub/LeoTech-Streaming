@@ -6,9 +6,6 @@ function ProductCard({ producto }) {
   const navigate = useNavigate();
   const { addToCart } = useContext(CartContext); 
 
-  // 🕵️‍♂️ MODO DETECTIVE: Mira la consola del navegador (F12) para ver qué datos llegan
-  console.log("Datos del producto:", producto);
-
   // --- Lógica de Imagen ---
   const nombreArchivo = producto.imagen_url || producto.imagen || producto.foto;
   let rutaFinalImagen = "https://placehold.co/300x300?text=Sin+Foto";

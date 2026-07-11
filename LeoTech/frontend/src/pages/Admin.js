@@ -7,7 +7,7 @@ function Admin() {
 
   // 🧠 CEREBRO DE CONEXIÓN
   const isLocal = window.location.hostname.includes("localhost") || window.location.hostname.includes("192.168");
-  const URL_API = isLocal ? "http://192.168.1.5:8081" : "https://leotech-streaming.onrender.com"; 
+  const URL_API = isLocal ? "http://localhost:8081" : "https://leotech-streaming.onrender.com"; 
 
   return (
     <div className="container mt-4 mb-5" id="form-top">
