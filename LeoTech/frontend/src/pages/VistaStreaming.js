@@ -153,20 +153,6 @@ function VistaStreaming({ api }) {
   };
 
   const handleEditarCliente = (c) => { 
-      const nombreCliente = c.nombre_cliente || c.nombre || 'Cliente';
-      if (window.confirm(`¿Deseas RENOVAR la suscripción de ${nombreCliente} por +30 días y registrar el pago?\n\n(Haz clic en Cancelar si solo quieres EDITAR los datos del cliente manualmente)`)) {
-          axios.post(`${api}/clientes/renovar/${c.id}`)
-              .then((res) => {
-                  alert(`✅ Suscripción de ${nombreCliente} renovada por 30 días.`);
-                  cargarDatos();
-              })
-              .catch((err) => {
-                  console.error(err);
-                  alert("❌ Error al renovar la suscripción: " + (err.response?.data?.error || err.message));
-              });
-          return;
-      }
-
       setFormCliente({ 
           nombre: c.nombre_cliente || c.nombre || '', celular: c.numero_celular || c.celular || '', 
           servicio: c.servicio || 'Netflix', perfil: c.perfil || '', pin: c.pin_perfil || c.pin || '', 
