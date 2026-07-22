@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useParams } from 'react-router-dom'; 
 import ProductCard from '../components/ProductCard'; 
+import API_URL from '../api';
 
 function Catalogo({ categoria }) { 
   const { nombreCategoria } = useParams(); 
@@ -15,7 +16,7 @@ function Catalogo({ categoria }) {
   // Cargar productos
   useEffect(() => {
     setLoading(true);
-    axios.get('https://leotech-streaming.onrender.com/productos')
+    axios.get(`${API_URL}/productos`)
       .then(res => {
         
         // --- LÓGICA DE FILTRADO MEJORADA (Igual que en Admin) ---

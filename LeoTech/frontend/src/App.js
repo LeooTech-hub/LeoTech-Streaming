@@ -35,18 +35,21 @@ function App() {
 
   // 1. Función para agregar productos
   const agregarAlCarrito = (producto, cantidad = 1) => {
+    const cantNum = Number(cantidad) || 1;
     const existe = carrito.find(item => item.id === producto.id);
     
     if (existe) {
-      const nuevoCarrito = carrito.map(item => 
-        item.id === producto.id 
-          ? { ...item, cantidadElegida: item.cantidadElegida + cantidad }
-          : item
-      );
+      const nuevoCarrito = carrito.map(item => {
+        if (item.id === producto.id) {
+          const prevCant = Number(item.cantidadElegida || item.cantidad || 1);
+          const acumulado = prevCant + cantNum;
+          return { ...item, cantidadElegida: acumulado, cantidad: acumulado };
+        }
+        return item;
+      });
       setCarrito(nuevoCarrito);
     } else {
-      // Nota: Asegúrate que tu componente Pago lea 'cantidadElegida' o mapealo aquí
-      const nuevoItem = { ...producto, cantidad: cantidad, cantidadElegida: cantidad };
+      const nuevoItem = { ...producto, cantidad: cantNum, cantidadElegida: cantNum };
       setCarrito([...carrito, nuevoItem]);
     }
   };
@@ -59,18 +62,21 @@ function App() {
 
   // 3. Función para actualizar cantidad directamente
   const actualizarCantidad = (id, nuevaCantidad) => {
+    const cantNum = Math.max(1, Number(nuevaCantidad) || 1);
     const nuevoCarrito = carrito.map(item => 
-      item.id === id ? { ...item, cantidadElegida: nuevaCantidad, cantidad: nuevaCantidad } : item
+      item.id === id ? { ...item, cantidadElegida: cantNum, cantidad: cantNum } : item
     );
     setCarrito(nuevoCarrito);
   };
 
   return (
-    /* ✅ MODIFICACIÓN IMPORTANTE: 
-       Pasamos 'cart: carrito' dentro del value. 
-       Así el componente Pago (que usa useContext) podrá leer los productos.
-    */
-    <CartContext.Provider value={{ addToCart: agregarAlCarrito, cart: carrito }}>
+    <CartContext.Provider value={{ 
+      addToCart: agregarAlCarrito, 
+      cart: carrito, 
+      removeFromCart: eliminarDelCarrito, 
+      updateQuantity: actualizarCantidad, 
+      clearCart: () => setCarrito([]) 
+    }}>
       <div className="App">
         {/* Pasamos la cantidad de productos al Navbar para el numerito rojo */}
         <Navbar cantidadCarrito={carrito.length} />
@@ -78,6 +84,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Catalogo categoria="Todas" />} />
           <Route path="/cargadores" element={<Catalogo categoria="Cargadores" />} />
+          <Route path="/cargadores/:nombreCategoria" element={<Catalogo />} />
           <Route path="/accesorios" element={<Catalogo categoria="Accesorios" />} />
           <Route path="/cases" element={<Catalogo categoria="Cases" />} />
           <Route path="/coleccion/:nombreCategoria" element={<Catalogo />} />

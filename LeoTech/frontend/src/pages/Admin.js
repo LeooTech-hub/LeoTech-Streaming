@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import VistaProductos from './VistaProductos';
 import VistaStreaming from './VistaStreaming';
+import API_URL from '../api';
 
 function Admin() {
   const [pestanaActiva, setPestanaActiva] = useState('productos');
 
-  // 🧠 CEREBRO DE CONEXIÓN
-  const isLocal = window.location.hostname.includes("localhost") || window.location.hostname.includes("192.168");
-  const URL_API = isLocal ? "http://localhost:8081" : "https://leotech-streaming.onrender.com"; 
+  const URL_API = API_URL; 
 
   return (
     <div className="container mt-4 mb-5" id="form-top">

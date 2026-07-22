@@ -1,12 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
-
-// 🧠 CEREBRO DE CONEXIÓN
-const isLocal = window.location.hostname.includes("localhost") || window.location.hostname.includes("192.168");
-const API_URL = isLocal 
-  ? "http://localhost:8081" 
-  : "https://leotech-streaming.onrender.com"; 
+import API_URL from '../api';
 
 // CAMBIO 1: Recibimos la función 'agregarAlCarrito' como propiedad (prop)
 function DetalleProducto({ agregarAlCarrito }) {
@@ -43,8 +38,9 @@ function DetalleProducto({ agregarAlCarrito }) {
   // 🔢 LÓGICA PARA CAMBIAR CANTIDAD
   const handleCantidadChange = (e) => {
     let val = parseInt(e.target.value);
+    const maxStock = Number(producto.stock) > 0 ? Number(producto.stock) : 1;
     if(isNaN(val) || val < 1) val = 1; // Mínimo 1
-    if(val > producto.stock) val = producto.stock; // Máximo lo que tengas en stock
+    if(val > maxStock) val = maxStock; // Máximo lo que tengas en stock
     setCantidad(val);
   };
 

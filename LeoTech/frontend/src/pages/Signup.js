@@ -1,15 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-
-// ==============================================================
-// 🧠 CEREBRO DE CONEXIÓN
-// ==============================================================
-const isLocal = window.location.hostname.includes("localhost") || window.location.hostname.includes("192.168");
-const API_URL = isLocal 
-  ? "http://localhost:8081" 
-  : "https://leotech-streaming.onrender.com"; 
-// ==============================================================
+import API_URL from '../api';
 
 function Signup() {
   const [values, setValues] = useState({
