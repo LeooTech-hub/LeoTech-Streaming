@@ -24,7 +24,7 @@ function VistaStreaming({ api }) {
 
   // --- FORMULARIOS ---
   const [formCliente, setFormCliente] = useState({ 
-    nombre: '', celular: '', servicio: '', perfil: '', pin: '', 
+    nombre: '', celular: '', servicio: 'Netflix', perfil: '', pin: '', 
     correo: '', contrasena: '', 
     fecha_inicio: dayjs().format('YYYY-MM-DD'), 
     fecha_fin: dayjs().add(30, 'day').format('YYYY-MM-DD'),
@@ -32,7 +32,7 @@ function VistaStreaming({ api }) {
   });
 
   const [formStock, setFormStock] = useState({ 
-    correo: '', contrasena: '', servicio: '', costo: '', 
+    correo: '', contrasena: '', servicio: 'Netflix', costo: '', 
     fecha_entrada: dayjs().format('YYYY-MM-DD'), fecha_vencimiento: dayjs().add(30, 'day').format('YYYY-MM-DD')
   });
 
@@ -44,6 +44,23 @@ function VistaStreaming({ api }) {
   }, [api]); 
 
   useEffect(() => { cargarDatos(); }, [cargarDatos]);
+
+  // --- HELPER DE FECHA DE VENCIMIENTO ---
+  const getFechaVencimientoStr = (c) => {
+    if (!c) return '';
+    return c.fecha_finalizacion || c.fecha_fin || c.vencimiento || c.fechaVencimiento || '';
+  };
+
+  const compararVencimiento = (a, b) => {
+    const fA = getFechaVencimientoStr(a);
+    const fB = getFechaVencimientoStr(b);
+
+    if (!fA && !fB) return 0;
+    if (!fA) return 1;
+    if (!fB) return -1;
+
+    return dayjs(fA).valueOf() - dayjs(fB).valueOf();
+  };
 
   // --- CÁLCULOS ---
   const totalIngresosClientes = dataClientes.reduce((acc, cliente) => acc + Number(cliente.monto || 0), 0);
@@ -67,39 +84,44 @@ function VistaStreaming({ api }) {
   const clientesPorVencer = useMemo(() => {
     const hoy = dayjs();
     return dataClientes.filter(c => {
-        if (!c.fecha_finalizacion && !c.fecha_fin) return false;
-        const fechaFin = dayjs(c.fecha_finalizacion || c.fecha_fin);
+        const fechaStr = getFechaVencimientoStr(c);
+        if (!fechaStr) return false;
+        const fechaFin = dayjs(fechaStr);
         const diasRestantes = fechaFin.diff(hoy, 'day');
         return diasRestantes <= 3;
-    }).sort((a, b) => dayjs(a.fecha_finalizacion || a.fecha_fin) - dayjs(b.fecha_finalizacion || b.fecha_fin));
+    }).sort(compararVencimiento);
   }, [dataClientes]);
 
   // FILTRADO
   const clientesFiltrados = dataClientes.filter(c => filtroCliente === 'Todos' ? true : c.servicio === filtroCliente);
   const stockFiltrado = dataInventario.filter(i => filtroStock === 'Todos' ? true : i.servicio === filtroStock);
 
-  // AGRUPACIÓN
+  // AGRUPACIÓN Y ORDENAMIENTO DEUDORES/VENCIDOS PRIMERO (REQUERIMIENTO 1)
   const clientesAgrupados = useMemo(() => {
     const grupos = {};
-    clientesFiltrados.forEach(c => {
+    // 1. Ordenamos la lista general por fecha de vencimiento (antiguos/vencidos primero)
+    const clientesOrdenados = [...clientesFiltrados].sort(compararVencimiento);
+
+    clientesOrdenados.forEach(c => {
       const servicio = c.servicio || 'Otros';
       const correo = c.correo || 'Sin Correo Asignado';
       if (!grupos[servicio]) grupos[servicio] = {};
       if (!grupos[servicio][correo]) grupos[servicio][correo] = [];
       grupos[servicio][correo].push(c);
     });
+
     return grupos;
   }, [clientesFiltrados]);
 
   // COLORES MARCA
   const getBrandColor = (servicio) => {
     const s = servicio.toLowerCase();
-    if(s.includes('Netflix')) return '#E50914';
-    if(s.includes('Disney')) return '#113CCF';
-    if(s.includes('Hbo max') || s.includes('hbo')) return '#991EEB';
-    if(s.includes('Prime Video')) return '#00A8E1';
-    if(s.includes('Spotify')) return '#1DB954';
-    if(s.includes('Crunchyroll')) return '#F47521';
+    if(s.includes('netflix')) return '#E50914';
+    if(s.includes('disney')) return '#113CCF';
+    if(s.includes('hbo max') || s.includes('hbo')) return '#991EEB';
+    if(s.includes('prime video')) return '#00A8E1';
+    if(s.includes('spotify')) return '#1DB954';
+    if(s.includes('crunchyroll')) return '#F47521';
     return '#343a40';
   };
 
@@ -122,13 +144,55 @@ function VistaStreaming({ api }) {
       setEditandoCliente(false); setClienteEditarId(null); 
   };
 
+  // REQUERIMIENTO 2: BOTÓN PERFIL LIBRE AUTOMÁTICO
+  const handleGenerarPerfilLibre = () => {
+    setFormCliente(prev => ({
+      ...prev,
+      nombre: '>>> LIBRE <<<',
+      celular: '',
+      perfil: prev.perfil || 'Perfil 1',
+      pin: prev.pin || String(Math.floor(1000 + Math.random() * 9000)),
+      monto: '0',
+      fecha_inicio: dayjs().format('YYYY-MM-DD'),
+      fecha_fin: dayjs().add(30, 'day').format('YYYY-MM-DD')
+    }));
+  };
+
+  const handleGenerarPerfilLibreCuenta = (servicio, correo, contrasena, clientesExistentes = []) => {
+    const perfilesPosibles = ['Perfil 1', 'Perfil 2', 'Perfil 3', 'Perfil 4', 'Perfil 5'];
+    const ocupados = clientesExistentes.map(c => (c.perfil || '').trim().toLowerCase());
+    let perfilLibre = perfilesPosibles.find(p => !ocupados.includes(p.toLowerCase()));
+    if (!perfilLibre) {
+      perfilLibre = `Perfil ${clientesExistentes.length + 1}`;
+    }
+    const pinLibre = String(Math.floor(1000 + Math.random() * 9000));
+
+    setFormCliente({
+      nombre: '>>> LIBRE <<<',
+      celular: '',
+      servicio: servicio || 'Netflix',
+      perfil: perfilLibre,
+      pin: pinLibre,
+      correo: correo || '',
+      contrasena: contrasena || '',
+      fecha_inicio: dayjs().format('YYYY-MM-DD'),
+      fecha_fin: dayjs().add(30, 'day').format('YYYY-MM-DD'),
+      monto: '0'
+    });
+    setEditandoCliente(false);
+    setClienteEditarId(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const prepararPayloadCliente = (form) => {
+      const nombreFinal = form.nombre ? form.nombre.trim() : '>>> LIBRE <<<';
       return {
-          nombre: form.nombre, nombre_cliente: form.nombre,
-          celular: form.celular, numero_celular: form.celular,
-          pin: form.pin || '', pin_perfil: form.pin || '',
+          nombre: nombreFinal, nombre_cliente: nombreFinal,
+          celular: form.celular || '', numero_celular: form.celular || '',
+          pin: form.pin || String(Math.floor(1000 + Math.random() * 9000)), 
+          pin_perfil: form.pin || String(Math.floor(1000 + Math.random() * 9000)),
           fecha_fin: form.fecha_fin, fecha_finalizacion: form.fecha_fin,
-          servicio: form.servicio, perfil: form.perfil,
+          servicio: form.servicio, perfil: form.perfil || 'Perfil 1',
           correo: form.correo, contrasena: form.contrasena,
           fecha_inicio: form.fecha_inicio, monto: form.monto === '' ? 0 : form.monto
       };
@@ -139,7 +203,7 @@ function VistaStreaming({ api }) {
       const payload = prepararPayloadCliente(formCliente);
       axios.post(`${api}/clientes`, payload).then((res) => { 
           if (res.data && (res.data.code || res.data.sqlMessage)) return alert("❌ ERROR BD:\n" + (res.data.sqlMessage));
-          alert("✅ Cliente Registrado Correctamente"); cargarDatos(); limpiarFormCliente(); 
+          alert("✅ Cliente / Perfil Libre Registrado Correctamente"); cargarDatos(); limpiarFormCliente(); 
       }).catch(err => { console.error(err); alert("Error de conexión."); }); 
   };
   
@@ -158,7 +222,7 @@ function VistaStreaming({ api }) {
           servicio: c.servicio || 'Netflix', perfil: c.perfil || '', pin: c.pin_perfil || c.pin || '', 
           correo: c.correo || '', contrasena: c.contrasena || '', 
           fecha_inicio: c.fecha_inicio ? c.fecha_inicio.split('T')[0] : '', 
-          fecha_fin: (c.fecha_finalizacion || c.fecha_fin) ? (c.fecha_finalizacion || c.fecha_fin).split('T')[0] : '', 
+          fecha_fin: getFechaVencimientoStr(c) ? getFechaVencimientoStr(c).split('T')[0] : '', 
           monto: c.monto || ''
       }); 
       setEditandoCliente(true); setClienteEditarId(c.id); window.scrollTo({ top: 0, behavior: 'smooth' }); 
@@ -171,6 +235,25 @@ function VistaStreaming({ api }) {
   const actualizarCuenta = (e) => { e.preventDefault(); axios.put(`${api}/inventario/${stockEditarId}`, formStock).then(() => { alert("✅ Stock Actualizado"); cargarDatos(); limpiarFormStock(); }); };
   const handleEditarStock = (i) => { setFormStock({ correo: i.correo, contrasena: i.contrasena, servicio: i.servicio, costo: i.costo, fecha_entrada: i.fecha_entrada ? i.fecha_entrada.split('T')[0] : '', fecha_vencimiento: i.fecha_vencimiento ? i.fecha_vencimiento.split('T')[0] : '' }); setEditandoStock(true); setStockEditarId(i.id); };
 
+  // ORDENAMIENTO DE SERVICIOS Y CUENTAS (DEUDORES / VENCIDOS PRIMERO)
+  const serviciosOrdenados = useMemo(() => {
+    return Object.keys(clientesAgrupados).sort((servA, servB) => {
+      const getMinDateServ = (serv) => {
+        let minTs = Infinity;
+        Object.values(clientesAgrupados[serv]).forEach(perfiles => {
+          perfiles.forEach(p => {
+            const d = getFechaVencimientoStr(p);
+            if (d) {
+              const ts = dayjs(d).valueOf();
+              if (ts < minTs) minTs = ts;
+            }
+          });
+        });
+        return minTs;
+      };
+      return getMinDateServ(servA) - getMinDateServ(servB);
+    });
+  }, [clientesAgrupados]);
 
   return (
     <div className="row position-relative">
@@ -209,18 +292,17 @@ function VistaStreaming({ api }) {
                         ) : (
                             <div className="list-group list-group-flush">
                                 {clientesPorVencer.map(c => {
-                                    const fechaFin = dayjs(c.fecha_finalizacion || c.fecha_fin);
+                                    const fechaFinStr = getFechaVencimientoStr(c);
+                                    const fechaFin = dayjs(fechaFinStr);
                                     const diasRestantes = fechaFin.diff(dayjs(), 'day');
                                     let estado = { color: 'bg-warning', texto: 'Pronto' };
                                     if (diasRestantes < 0) estado = { color: 'bg-danger', texto: 'VENCIDO' };
                                     if (diasRestantes === 0) estado = { color: 'bg-danger', texto: 'HOY' };
                                     
-                                    // 🛡️ BLINDAJE AQUÍ: Si no hay celular, pone vacío '' para que no explote
                                     const celular = c.numero_celular || c.celular || '';
                                     
                                     const mensajeWsp = `Hola ${c.nombre_cliente || c.nombre}, te saluda LeoTech. Tu cuenta de ${c.servicio} vence el ${fechaFin.format('DD/MM')}. ¿Desearías renovar? 🚀`;
                                     
-                                    // Solo crea el link si hay celular, sino pone '#'
                                     const linkWsp = celular ? `https://wa.me/51${celular.replace(/\s/g, '')}?text=${encodeURIComponent(mensajeWsp)}` : '#';
 
                                     return (
@@ -264,11 +346,27 @@ function VistaStreaming({ api }) {
         {/* COLUMNA IZQUIERDA: FORMULARIO */}
         <div className="col-md-5 mb-4">
           <div className="card p-4 shadow-sm border-0 bg-white" style={{borderRadius: '10px'}}>
-            <h5 className="fw-bold mb-3" style={{color: '#5664d2'}}>{editandoCliente ? '✏️ EDITAR CLIENTE' : '+ NUEVO CLIENTE (30 DÍAS)'}</h5>
+            <div className="d-flex justify-content-between align-items-center mb-3">
+              <h5 className="fw-bold mb-0" style={{color: '#5664d2'}}>
+                {editandoCliente ? '✏️ EDITAR CLIENTE' : '+ NUEVO CLIENTE (30 DÍAS)'}
+              </h5>
+              {!editandoCliente && (
+                <button 
+                  type="button" 
+                  onClick={handleGenerarPerfilLibre} 
+                  className="btn btn-sm text-white fw-bold shadow-sm"
+                  style={{ backgroundColor: '#00C853', borderRadius: '20px', fontSize: '0.8rem', border: 'none' }}
+                  title="Autorellenar perfil como libre"
+                >
+                  <i className="bi bi-plus-circle me-1"></i>+ Perfil Libre
+                </button>
+              )}
+            </div>
+
             <form onSubmit={editandoCliente ? actualizarCliente : guardarCliente}>
               <h6 className="text-muted border-bottom pb-2 mb-3 small fw-bold">Datos del Cliente</h6>
-              <div className="mb-3"><label className="form-label small text-muted">Nombre Cliente</label><input className="form-control" value={formCliente.nombre} onChange={e=>setFormCliente({...formCliente, nombre:e.target.value})} style={{height:'45px', backgroundColor:'#f8f9fa'}}/></div>
-              <div className="mb-3"><label className="form-label small text-muted">Celular (WhatsApp)</label><input className="form-control" value={formCliente.celular} onChange={e=>setFormCliente({...formCliente, celular:e.target.value})} placeholder="51..." style={{height:'45px', backgroundColor:'#f8f9fa'}}/></div>
+              <div className="mb-3"><label className="form-label small text-muted">Nombre Cliente</label><input className="form-control" value={formCliente.nombre} onChange={e=>setFormCliente({...formCliente, nombre:e.target.value})} placeholder="Ej: Juan Perez o >>> LIBRE <<<" style={{height:'45px', backgroundColor:'#f8f9fa'}}/></div>
+              <div className="mb-3"><label className="form-label small text-muted">Celular (WhatsApp)</label><input className="form-control" value={formCliente.celular} onChange={e=>setFormCliente({...formCliente, celular:e.target.value})} placeholder="51... (Opcional)" style={{height:'45px', backgroundColor:'#f8f9fa'}}/></div>
               
               <h6 className="text-muted border-bottom pb-2 mt-4 mb-3 small fw-bold">Datos Suscripción</h6>
               <div className="row mb-2">
@@ -310,21 +408,41 @@ function VistaStreaming({ api }) {
             </div>
 
             <div style={{maxHeight:'800px', overflowY:'auto', paddingRight:'5px'}}>
-              {Object.keys(clientesAgrupados).length === 0 && (
+              {serviciosOrdenados.length === 0 && (
                 <div className="alert alert-secondary text-center">No hay clientes activos en esta categoría.</div>
               )}
-              {Object.keys(clientesAgrupados).map(servicio => {
+              {serviciosOrdenados.map(servicio => {
                 const cuentasDeEsteServicio = clientesAgrupados[servicio];
                 const colorMarca = getBrandColor(servicio);
+
+                // Ordenar las cuentas/correos por fecha de vencimiento más urgente primero
+                const correosOrdenados = Object.keys(cuentasDeEsteServicio).sort((correoA, correoB) => {
+                  const getMinDateEmail = (list) => {
+                    let minTs = Infinity;
+                    list.forEach(p => {
+                      const d = getFechaVencimientoStr(p);
+                      if (d) {
+                        const ts = dayjs(d).valueOf();
+                        if (ts < minTs) minTs = ts;
+                      }
+                    });
+                    return minTs;
+                  };
+                  return getMinDateEmail(cuentasDeEsteServicio[correoA]) - getMinDateEmail(cuentasDeEsteServicio[correoB]);
+                });
+
                 return (
                   <div key={servicio} className="mb-4">
                     <div className="d-flex align-items-center mb-2">
                         <span className="badge rounded-pill me-2" style={{backgroundColor: colorMarca, fontSize:'0.9rem'}}>{servicio}</span>
                         <div style={{height:'1px', backgroundColor: colorMarca, flexGrow:1, opacity:0.3}}></div>
                     </div>
-                    {Object.keys(cuentasDeEsteServicio).map(correo => {
+                    {correosOrdenados.map(correo => {
                       const clientesEnCuenta = cuentasDeEsteServicio[correo];
                       
+                      // Ordenamiento interno por vencimiento (Deudores / Vencidos primero)
+                      const clientesEnCuentaOrdenados = [...clientesEnCuenta].sort(compararVencimiento);
+
                       const stockEncontrado = dataInventario.find(i => i.correo.trim().toLowerCase() === correo.trim().toLowerCase());
                       const passwordCuenta = stockEncontrado ? stockEncontrado.contrasena : (clientesEnCuenta[0].contrasena || '???');
 
@@ -333,21 +451,46 @@ function VistaStreaming({ api }) {
                           <div className="card-header bg-light border-0 d-flex justify-content-between align-items-center py-2">
                              <div className="d-flex align-items-center gap-2" style={{overflow:'hidden'}}>
                                 <i className="bi bi-envelope-at-fill text-muted"></i>
-                                <div className="fw-bold text-dark text-truncate" style={{maxWidth:'200px'}} title={correo}>{correo}</div>
-                                <div className="badge bg-secondary bg-opacity-10 text-dark border ms-2">Pass: {passwordCuenta}</div>
+                                <div className="fw-bold text-dark text-truncate" style={{maxWidth:'180px'}} title={correo}>{correo}</div>
+                                <div className="badge bg-secondary bg-opacity-10 text-dark border ms-1">Pass: {passwordCuenta}</div>
                              </div>
-                             <span className="badge bg-primary rounded-pill">{clientesEnCuenta.length} Perfiles</span>
+                             <div className="d-flex align-items-center gap-2">
+                                <button 
+                                  type="button"
+                                  onClick={() => handleGenerarPerfilLibreCuenta(servicio, correo, passwordCuenta, clientesEnCuenta)}
+                                  className="btn btn-sm text-white fw-bold px-2 py-1 shadow-sm"
+                                  style={{ backgroundColor: '#00C853', borderRadius: '15px', fontSize: '0.75rem', border: 'none' }}
+                                  title="Generar perfil libre para esta cuenta"
+                                >
+                                  <i className="bi bi-plus-circle me-1"></i>+ Libre
+                                </button>
+                                <span className="badge bg-primary rounded-pill">{clientesEnCuenta.length} Perfiles</span>
+                             </div>
                           </div>
                           <div className="table-responsive">
                             <table className="table table-hover mb-0 align-middle text-nowrap">
                                 <tbody>
-                                  {clientesEnCuenta.map(c => {
-                                     const diasRestantes = dayjs(c.fecha_finalizacion || c.fecha_fin).diff(dayjs(), 'day');
+                                  {clientesEnCuentaOrdenados.map(c => {
+                                     const fechaFinStr = getFechaVencimientoStr(c);
+                                     const diasRestantes = fechaFinStr ? dayjs(fechaFinStr).diff(dayjs(), 'day') : 999;
+                                     const celular = c.numero_celular || c.celular;
+
                                      return (
                                        <tr key={c.id}>
-                                         <td className="ps-3" style={{width:'30%'}}><div className="fw-bold text-dark small">{c.nombre_cliente || c.nombre}</div><div className="text-success small" style={{fontSize:'0.7rem'}}><i className="bi bi-whatsapp me-1"></i>{c.numero_celular || c.celular}</div></td>
+                                         <td className="ps-3" style={{width:'30%'}}>
+                                            <div className="fw-bold text-dark small">{c.nombre_cliente || c.nombre}</div>
+                                            { celular ? (
+                                              <div className="text-success small" style={{fontSize:'0.7rem'}}>
+                                                <i className="bi bi-whatsapp me-1"></i>{celular}
+                                              </div>
+                                            ) : (
+                                              <div className="text-muted small opacity-75" style={{fontSize:'0.7rem'}}>
+                                                <i className="bi bi-dash-circle me-1"></i>Sin celular
+                                              </div>
+                                            )}
+                                         </td>
                                          <td><div className="badge bg-light text-dark border"><i className="bi bi-person-circle me-1"></i>{c.perfil} <span className="text-muted border-start ps-1 ms-1">{c.pin_perfil || c.pin}</span></div></td>
-                                         <td className="text-center"><span className={`badge rounded-pill ${diasRestantes < 3 ? 'bg-danger' : 'bg-success'}`} style={{fontSize:'0.75rem'}}>{(c.fecha_finalizacion || c.fecha_fin) ? dayjs(c.fecha_finalizacion || c.fecha_fin).add(10,'hour').format('DD/MM') : '-'}</span></td>
+                                         <td className="text-center"><span className={`badge rounded-pill ${diasRestantes < 3 ? 'bg-danger' : 'bg-success'}`} style={{fontSize:'0.75rem'}}>{fechaFinStr ? dayjs(fechaFinStr).add(10,'hour').format('DD/MM') : '-'}</span></td>
                                          <td className="text-end pe-3">
                                             <button onClick={() => handleEditarCliente(c)} className="btn btn-sm btn-link p-0 me-2 text-decoration-none" title="Editar">✏️</button>
                                             <button onClick={() => handleEliminar(c.id, 'cliente')} className="btn btn-sm btn-link p-0 text-decoration-none" title="Eliminar">❌</button>
