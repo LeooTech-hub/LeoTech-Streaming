@@ -5,10 +5,14 @@ import dayjs from 'dayjs';
 function VistaStreaming({ api }) {
   // --- DATOS ---
   const [dataClientes, setDataClientes] = useState([]);
+  const [dataEliminados, setDataEliminados] = useState([]);
   const [dataInventario, setDataInventario] = useState([]);
 
-  // --- ESTADO NOTIFICACIONES ---
+  // --- ESTADO NOTIFICACIONES Y PAPELERA ---
   const [mostrarNotificaciones, setMostrarNotificaciones] = useState(false);
+  const [mostrarPapelera, setMostrarPapelera] = useState(false);
+  const [filtroPapelera, setFiltroPapelera] = useState('');
+  const [toast, setToast] = useState({ mostrar: false, mensaje: '', tipo: 'success' });
 
   // --- FILTROS ---
   const [filtroCliente, setFiltroCliente] = useState('Todos');
@@ -40,6 +44,7 @@ function VistaStreaming({ api }) {
   const cargarDatos = useCallback(() => {
     const ts = Date.now(); 
     axios.get(`${api}/clientes?t=${ts}`).then(res => setDataClientes(res.data)).catch(err => console.error(err));
+    axios.get(`${api}/clientes/eliminados?t=${ts}`).then(res => setDataEliminados(res.data)).catch(err => console.error(err));
     axios.get(`${api}/inventario?t=${ts}`).then(res => setDataInventario(res.data)).catch(err => console.error(err));
   }, [api]); 
 
@@ -51,7 +56,7 @@ function VistaStreaming({ api }) {
     return c.fecha_finalizacion || c.fecha_fin || c.vencimiento || c.fechaVencimiento || '';
   };
 
-  const compararVencimiento = (a, b) => {
+  const compararVencimiento = useCallback((a, b) => {
     const fA = getFechaVencimientoStr(a);
     const fB = getFechaVencimientoStr(b);
 
@@ -60,7 +65,7 @@ function VistaStreaming({ api }) {
     if (!fB) return -1;
 
     return dayjs(fA).valueOf() - dayjs(fB).valueOf();
-  };
+  }, []);
 
   // --- CÁLCULOS ---
   const totalIngresosClientes = dataClientes.reduce((acc, cliente) => acc + Number(cliente.monto || 0), 0);
@@ -90,16 +95,15 @@ function VistaStreaming({ api }) {
         const diasRestantes = fechaFin.diff(hoy, 'day');
         return diasRestantes <= 3;
     }).sort(compararVencimiento);
-  }, [dataClientes]);
+  }, [dataClientes, compararVencimiento]);
 
   // FILTRADO
   const clientesFiltrados = dataClientes.filter(c => filtroCliente === 'Todos' ? true : c.servicio === filtroCliente);
   const stockFiltrado = dataInventario.filter(i => filtroStock === 'Todos' ? true : i.servicio === filtroStock);
 
-  // AGRUPACIÓN Y ORDENAMIENTO DEUDORES/VENCIDOS PRIMERO (REQUERIMIENTO 1)
+  // AGRUPACIÓN Y ORDENAMIENTO DEUDORES/VENCIDOS PRIMERO
   const clientesAgrupados = useMemo(() => {
     const grupos = {};
-    // 1. Ordenamos la lista general por fecha de vencimiento (antiguos/vencidos primero)
     const clientesOrdenados = [...clientesFiltrados].sort(compararVencimiento);
 
     clientesOrdenados.forEach(c => {
@@ -111,11 +115,11 @@ function VistaStreaming({ api }) {
     });
 
     return grupos;
-  }, [clientesFiltrados]);
+  }, [clientesFiltrados, compararVencimiento]);
 
   // COLORES MARCA
   const getBrandColor = (servicio) => {
-    const s = servicio.toLowerCase();
+    const s = (servicio || '').toLowerCase();
     if(s.includes('netflix')) return '#E50914';
     if(s.includes('disney')) return '#113CCF';
     if(s.includes('hbo max') || s.includes('hbo')) return '#991EEB';
@@ -125,12 +129,62 @@ function VistaStreaming({ api }) {
     return '#343a40';
   };
 
-  // --- HANDLERS ---
+  // --- TOAST HELPER ---
+  const mostrarToast = (mensaje, tipo = 'success') => {
+    setToast({ mostrar: true, mensaje, tipo });
+    setTimeout(() => setToast({ mostrar: false, mensaje: '', tipo: 'success' }), 4000);
+  };
+
+  // --- HANDLERS ELIMINAR / RESTAURAR ---
   const handleWheel = (e) => e.target.blur();
-  const handleEliminar = (id, tipo) => { 
-    if (!window.confirm("¿Eliminar?")) return; 
-    let ruta = tipo === 'cliente' ? `/delete/${id}` : `/inventario/${id}`; 
-    axios.delete(`${api}${ruta}`).then(() => cargarDatos()); 
+
+  const handleEliminar = (target, tipo) => { 
+    if (tipo === 'cliente') {
+      const clienteObj = typeof target === 'object' ? target : dataClientes.find(c => c.id === target);
+      const nombreCliente = clienteObj ? (clienteObj.nombre_cliente || clienteObj.nombre || '>>> LIBRE <<<') : 'Perfil';
+      const id = typeof target === 'object' ? target.id : target;
+
+      if (!window.confirm(`¿Mover el perfil de "${nombreCliente}" a la Papelera?`)) return; 
+
+      axios.delete(`${api}/delete/${id}`).then(() => {
+        cargarDatos();
+        mostrarToast(`Perfil de "${nombreCliente}" movido a la Papelera 🗑️`, 'warning');
+      }).catch(err => {
+        console.error(err);
+        mostrarToast("Error al mover perfil a la papelera", "danger");
+      });
+    } else {
+      const id = typeof target === 'object' ? target.id : target;
+      if (!window.confirm("¿Eliminar esta cuenta del stock?")) return; 
+      axios.delete(`${api}/inventario/${id}`).then(() => {
+        cargarDatos();
+        mostrarToast("Cuenta eliminada del stock", "warning");
+      }).catch(err => {
+        console.error(err);
+        mostrarToast("Error al eliminar cuenta del stock", "danger");
+      }); 
+    }
+  };
+
+  const handleRestaurar = (id, nombre) => {
+    axios.put(`${api}/clientes/restaurar/${id}`).then(() => {
+      cargarDatos();
+      mostrarToast(`Perfil "${nombre || 'Libre'}" restaurado con éxito 🎉`, 'success');
+    }).catch(err => {
+      console.error(err);
+      mostrarToast("Error al restaurar perfil", "danger");
+    });
+  };
+
+  const handleEliminarDefinitivo = (id, nombre) => {
+    if (!window.confirm(`⚠️ ¿Estás seguro de ELIMINAR DEFINITIVAMENTE el perfil de "${nombre}"?\nEsta acción no se puede deshacer.`)) return;
+    axios.delete(`${api}/clientes/destruir/${id}`).then(() => {
+      cargarDatos();
+      mostrarToast(`Perfil "${nombre}" eliminado permanentemente`, 'danger');
+    }).catch(err => {
+      console.error(err);
+      mostrarToast("Error al eliminar definitivamente", "danger");
+    });
   };
 
   // CLIENTES HANDLERS
@@ -258,12 +312,27 @@ function VistaStreaming({ api }) {
   return (
     <div className="row position-relative">
         
-        {/* 🔥 BOTÓN FLOTANTE NOTIFICACIONES */}
-        <div className="position-absolute top-0 end-0 mt-n4 me-2" style={{zIndex: 1000}}>
+        {/* 🔥 BOTÓN FLOTANTE NOTIFICACIONES Y PAPELERA */}
+        <div className="position-absolute top-0 end-0 mt-n4 me-2 d-flex gap-2 align-items-center" style={{zIndex: 1000}}>
+            <button 
+                className="btn btn-light shadow position-relative rounded-pill border d-flex align-items-center gap-2 px-3" 
+                onClick={() => setMostrarPapelera(true)}
+                style={{height: '50px'}}
+                title="Historial de Perfiles Eliminados"
+            >
+                <i className="bi bi-trash3-fill text-danger" style={{fontSize: '1.2rem'}}></i>
+                <span className="fw-bold text-dark d-none d-sm-inline" style={{fontSize: '0.85rem'}}>Papelera</span>
+                {dataEliminados.length > 0 && (
+                    <span className="badge rounded-pill bg-danger">
+                        {dataEliminados.length}
+                    </span>
+                )}
+            </button>
             <button 
                 className="btn btn-light shadow position-relative rounded-circle border" 
                 onClick={() => setMostrarNotificaciones(!mostrarNotificaciones)}
                 style={{width: '50px', height: '50px'}}
+                title="Vencimientos Próximos"
             >
                 <i className={`bi ${mostrarNotificaciones ? 'bi-x-lg' : 'bi-bell-fill text-warning'}`} style={{fontSize: '1.2rem'}}></i>
                 {clientesPorVencer.length > 0 && !mostrarNotificaciones && (
@@ -391,19 +460,30 @@ function VistaStreaming({ api }) {
 
         {/* COLUMNA DERECHA: CLIENTES AGRUPADOS */}
         <div className="col-md-7 mb-4">
-            <div className="d-flex justify-content-between align-items-center mb-3">
+            <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
               <h5 className="mb-0 fw-bold text-dark"><i className="bi bi-people-fill me-2"></i>Gestión de Cuentas</h5>
-              <div className="dropdown">
-                <button className="btn btn-dark dropdown-toggle rounded-pill fw-bold shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false" style={{fontSize:'0.85rem'}}>
-                  <i className="bi bi-funnel-fill me-2"></i>{filtroCliente === 'Todos' ? 'Todas las Apps' : filtroCliente}
+              <div className="d-flex align-items-center gap-2">
+                <button 
+                  className="btn btn-outline-danger btn-sm rounded-pill fw-bold shadow-sm d-flex align-items-center gap-1 px-3"
+                  onClick={() => setMostrarPapelera(true)}
+                  title="Ver perfiles en la papelera"
+                  style={{fontSize:'0.85rem'}}
+                >
+                  <i className="bi bi-trash3-fill"></i>
+                  <span>Papelera ({dataEliminados.length})</span>
                 </button>
-                <ul className="dropdown-menu dropdown-menu-end shadow">
-                  <li><button className={`dropdown-item ${filtroCliente==='Todos'?'active':''}`} onClick={() => setFiltroCliente('Todos')}>Todos</button></li>
-                  <li><hr className="dropdown-divider"/></li>
-                  {LISTA_PLATAFORMAS.map(plat => (
-                    <li key={plat}><button className={`dropdown-item ${filtroCliente===plat?'active':''}`} onClick={() => setFiltroCliente(plat)}>{plat}</button></li>
-                  ))}
-                </ul>
+                <div className="dropdown">
+                  <button className="btn btn-dark dropdown-toggle rounded-pill fw-bold shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false" style={{fontSize:'0.85rem'}}>
+                    <i className="bi bi-funnel-fill me-2"></i>{filtroCliente === 'Todos' ? 'Todas las Apps' : filtroCliente}
+                  </button>
+                  <ul className="dropdown-menu dropdown-menu-end shadow">
+                    <li><button className={`dropdown-item ${filtroCliente==='Todos'?'active':''}`} onClick={() => setFiltroCliente('Todos')}>Todos</button></li>
+                    <li><hr className="dropdown-divider"/></li>
+                    {LISTA_PLATAFORMAS.map(plat => (
+                      <li key={plat}><button className={`dropdown-item ${filtroCliente===plat?'active':''}`} onClick={() => setFiltroCliente(plat)}>{plat}</button></li>
+                    ))}
+                  </ul>
+                </div>
               </div>
             </div>
 
@@ -493,7 +573,7 @@ function VistaStreaming({ api }) {
                                          <td className="text-center"><span className={`badge rounded-pill ${diasRestantes < 3 ? 'bg-danger' : 'bg-success'}`} style={{fontSize:'0.75rem'}}>{fechaFinStr ? dayjs(fechaFinStr).add(10,'hour').format('DD/MM') : '-'}</span></td>
                                          <td className="text-end pe-3">
                                             <button onClick={() => handleEditarCliente(c)} className="btn btn-sm btn-link p-0 me-2 text-decoration-none" title="Editar">✏️</button>
-                                            <button onClick={() => handleEliminar(c.id, 'cliente')} className="btn btn-sm btn-link p-0 text-decoration-none" title="Eliminar">❌</button>
+                                            <button onClick={() => handleEliminar(c, 'cliente')} className="btn btn-sm btn-link p-0 text-decoration-none" title="Mover a Papelera">❌</button>
                                          </td>
                                        </tr>
                                      );
@@ -578,6 +658,172 @@ function VistaStreaming({ api }) {
             </div>
           </div>
         </div>
+
+        {/* 🗑️ MODAL HISTORIAL DE PERFILES ELIMINADOS (PAPELERA) */}
+        {mostrarPapelera && (
+          <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 1050 }}>
+            <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+              <div className="modal-content border-0 shadow-lg" style={{ borderRadius: '16px', overflow: 'hidden' }}>
+                
+                {/* CABECERA MODAL */}
+                <div className="modal-header text-white" style={{ background: 'linear-gradient(135deg, #1e1e2f 0%, #2d2b42 100%)', borderBottom: '2px solid #dc3545' }}>
+                  <div className="d-flex align-items-center gap-2">
+                    <div className="p-2 bg-danger bg-opacity-20 rounded-circle text-danger d-flex align-items-center justify-content-center" style={{ width: '40px', height: '40px' }}>
+                      <i className="bi bi-trash3-fill fs-5 text-white"></i>
+                    </div>
+                    <div>
+                      <h5 className="modal-title fw-bold mb-0 text-white">Historial de Perfiles Eliminados</h5>
+                      <small className="text-light opacity-75">Perfiles en papelera con opción de restauración</small>
+                    </div>
+                  </div>
+                  <button type="button" className="btn-close btn-close-white" onClick={() => setMostrarPapelera(false)}></button>
+                </div>
+
+                {/* CUERPO MODAL */}
+                <div className="modal-body p-4 bg-light">
+                  
+                  {/* BARRA DE BÚSQUEDA */}
+                  {dataEliminados.length > 0 && (
+                    <div className="mb-3">
+                      <div className="input-group shadow-sm">
+                        <span className="input-group-text bg-white border-end-0"><i className="bi bi-search text-muted"></i></span>
+                        <input 
+                          type="text" 
+                          className="form-control border-start-0 ps-0 bg-white" 
+                          placeholder="Buscar por cliente, correo o servicio..." 
+                          value={filtroPapelera}
+                          onChange={e => setFiltroPapelera(e.target.value)}
+                        />
+                        {filtroPapelera && (
+                          <button className="btn btn-outline-secondary border-start-0" onClick={() => setFiltroPapelera('')}>
+                            <i className="bi bi-x"></i>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* LISTADO DE ELIMINADOS */}
+                  {dataEliminados.length === 0 ? (
+                    <div className="text-center py-5">
+                      <div className="mb-3 text-muted opacity-50">
+                        <i className="bi bi-trash3" style={{ fontSize: '3.5rem' }}></i>
+                      </div>
+                      <h6 className="fw-bold text-secondary">La papelera está vacía</h6>
+                      <p className="text-muted small mb-0">Los perfiles que elimines con la "X" roja aparecerán aquí para ser restaurados cuando lo necesites.</p>
+                    </div>
+                  ) : (
+                    <div className="table-responsive bg-white rounded-3 shadow-sm border">
+                      <table className="table table-hover align-middle mb-0">
+                        <thead className="table-dark">
+                          <tr>
+                            <th>Cliente Original</th>
+                            <th>Cuenta Asignada</th>
+                            <th>Perfil / PIN</th>
+                            <th>Fecha Eliminación</th>
+                            <th className="text-end pe-3">Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dataEliminados
+                            .filter(item => {
+                              if (!filtroPapelera) return true;
+                              const term = filtroPapelera.toLowerCase();
+                              return (
+                                (item.nombre_cliente || item.nombre || '').toLowerCase().includes(term) ||
+                                (item.correo || '').toLowerCase().includes(term) ||
+                                (item.servicio || '').toLowerCase().includes(term) ||
+                                (item.perfil || '').toLowerCase().includes(term)
+                              );
+                            })
+                            .map(item => {
+                              const fechaElim = item.fecha_eliminacion ? dayjs(item.fecha_eliminacion).format('DD/MM/YYYY HH:mm') : 'No registrada';
+                              const colorMarca = getBrandColor(item.servicio || '');
+                              const nombreMostrar = item.nombre_cliente || item.nombre || '>>> LIBRE <<<';
+
+                              return (
+                                <tr key={item.id}>
+                                  <td>
+                                    <div className="fw-bold text-dark">{nombreMostrar}</div>
+                                    {item.numero_celular || item.celular ? (
+                                      <small className="text-muted"><i className="bi bi-whatsapp me-1 text-success"></i>{item.numero_celular || item.celular}</small>
+                                    ) : (
+                                      <small className="text-muted opacity-75">Sin número</small>
+                                    )}
+                                  </td>
+                                  <td>
+                                    <span className="badge rounded-pill me-1 text-white" style={{ backgroundColor: colorMarca }}>{item.servicio}</span>
+                                    <div className="small text-muted text-truncate" style={{ maxWidth: '160px' }} title={item.correo}>{item.correo || 'Sin correo'}</div>
+                                  </td>
+                                  <td>
+                                    <span className="badge bg-light text-dark border">
+                                      <i className="bi bi-person-fill me-1"></i>{item.perfil || 'Perfil'}
+                                    </span>
+                                    {item.pin_perfil || item.pin ? (
+                                      <span className="small text-muted ms-1">({item.pin_perfil || item.pin})</span>
+                                    ) : null}
+                                  </td>
+                                  <td>
+                                    <small className="text-danger fw-semibold">
+                                      <i className="bi bi-clock-history me-1"></i>{fechaElim}
+                                    </small>
+                                  </td>
+                                  <td className="text-end pe-3">
+                                    <div className="d-flex justify-content-end gap-2">
+                                      <button 
+                                        onClick={() => handleRestaurar(item.id, nombreMostrar)}
+                                        className="btn btn-sm btn-outline-success rounded-pill fw-bold shadow-sm d-flex align-items-center gap-1 px-3"
+                                        title="Restaurar perfil a vista principal"
+                                      >
+                                        <i className="bi bi-arrow-counterclockwise fs-6"></i>
+                                        <span>Restaurar</span>
+                                      </button>
+                                      <button 
+                                        onClick={() => handleEliminarDefinitivo(item.id, nombreMostrar)}
+                                        className="btn btn-sm btn-outline-danger rounded-circle p-1 d-flex align-items-center justify-content-center"
+                                        style={{ width: '32px', height: '32px' }}
+                                        title="Eliminar definitivamente"
+                                      >
+                                        <i className="bi bi-x-lg"></i>
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                </div>
+
+                {/* PIE MODAL */}
+                <div className="modal-footer bg-white border-top-0 d-flex justify-content-between">
+                  <span className="small text-muted">Perfiles eliminados: <strong>{dataEliminados.length}</strong></span>
+                  <button type="button" className="btn btn-secondary rounded-pill px-4" onClick={() => setMostrarPapelera(false)}>
+                    Cerrar
+                  </button>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 🔔 TOAST DE NOTIFICACIONES VISUALES SUAVES */}
+        {toast.mostrar && (
+          <div className="position-fixed bottom-0 end-0 p-3" style={{ zIndex: 2000 }}>
+            <div className={`toast show align-items-center text-white bg-${toast.tipo} border-0 shadow-lg`} role="alert" aria-live="assertive" aria-atomic="true">
+              <div className="d-flex">
+                <div className="toast-body fw-bold">
+                  {toast.mensaje}
+                </div>
+                <button type="button" className="btn-close btn-close-white me-2 m-auto" onClick={() => setToast({ mostrar: false, mensaje: '', tipo: 'success' })}></button>
+              </div>
+            </div>
+          </div>
+        )}
     </div>
   );
 }
