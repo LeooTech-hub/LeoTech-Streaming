@@ -205,7 +205,7 @@ function VistaStreaming({ api }) {
       nombre: '>>> LIBRE <<<',
       celular: '',
       perfil: prev.perfil || 'Perfil 1',
-      pin: prev.pin || String(Math.floor(1000 + Math.random() * 9000)),
+      pin: '',
       monto: '0',
       fecha_inicio: dayjs().format('YYYY-MM-DD'),
       fecha_fin: dayjs().add(30, 'day').format('YYYY-MM-DD')
@@ -219,14 +219,13 @@ function VistaStreaming({ api }) {
     if (!perfilLibre) {
       perfilLibre = `Perfil ${clientesExistentes.length + 1}`;
     }
-    const pinLibre = String(Math.floor(1000 + Math.random() * 9000));
 
     setFormCliente({
       nombre: '>>> LIBRE <<<',
       celular: '',
       servicio: servicio || 'Netflix',
       perfil: perfilLibre,
-      pin: pinLibre,
+      pin: '',
       correo: correo || '',
       contrasena: contrasena || '',
       fecha_inicio: dayjs().format('YYYY-MM-DD'),
@@ -243,8 +242,8 @@ function VistaStreaming({ api }) {
       return {
           nombre: nombreFinal, nombre_cliente: nombreFinal,
           celular: form.celular || '', numero_celular: form.celular || '',
-          pin: form.pin || String(Math.floor(1000 + Math.random() * 9000)), 
-          pin_perfil: form.pin || String(Math.floor(1000 + Math.random() * 9000)),
+          pin: form.pin || '', 
+          pin_perfil: form.pin || '',
           fecha_fin: form.fecha_fin, fecha_finalizacion: form.fecha_fin,
           servicio: form.servicio, perfil: form.perfil || 'Perfil 1',
           correo: form.correo, contrasena: form.contrasena,
@@ -554,6 +553,7 @@ function VistaStreaming({ api }) {
                                      const fechaFinStr = getFechaVencimientoStr(c);
                                      const diasRestantes = fechaFinStr ? dayjs(fechaFinStr).diff(dayjs(), 'day') : 999;
                                      const celular = c.numero_celular || c.celular;
+                                     const pinVal = (c.pin_perfil || c.pin || '').toString().trim();
 
                                      return (
                                        <tr key={c.id}>
@@ -569,7 +569,12 @@ function VistaStreaming({ api }) {
                                               </div>
                                             )}
                                          </td>
-                                         <td><div className="badge bg-light text-dark border"><i className="bi bi-person-circle me-1"></i>{c.perfil} <span className="text-muted border-start ps-1 ms-1">{c.pin_perfil || c.pin}</span></div></td>
+                                         <td>
+                                            <div className="badge bg-light text-dark border">
+                                              <i className="bi bi-person-circle me-1"></i>{c.perfil}
+                                              {pinVal ? <span className="text-muted border-start ps-1 ms-1">{pinVal}</span> : null}
+                                            </div>
+                                         </td>
                                          <td className="text-center"><span className={`badge rounded-pill ${diasRestantes < 3 ? 'bg-danger' : 'bg-success'}`} style={{fontSize:'0.75rem'}}>{fechaFinStr ? dayjs(fechaFinStr).add(10,'hour').format('DD/MM') : '-'}</span></td>
                                          <td className="text-end pe-3">
                                             <button onClick={() => handleEditarCliente(c)} className="btn btn-sm btn-link p-0 me-2 text-decoration-none" title="Editar">✏️</button>
