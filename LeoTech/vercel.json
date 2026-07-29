@@ -1,10 +1,13 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
   ],
   "crons": [
     {
-      "path": "/api/keep-alive",
+      "path": "/api/cron/keep-alive",
       "schedule": "*/10 * * * *"
     }
   ]

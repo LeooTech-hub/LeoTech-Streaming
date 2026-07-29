@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const mysql = require('mysql');
+const mysql = require('mysql2');
 const bcrypt = require('bcrypt');
 const nodemailer = require('nodemailer');
 
@@ -22,15 +22,25 @@ app.use((req, res, next) => {
 //  CONFIGURACIÓN DE LA BASE DE DATOS (NUBE - TiDB)
 // ==========================================
 const db = mysql.createPool({
-    host: 'gateway01.us-east-1.prod.aws.tidbcloud.com',
-    port: 4000,
-    user: '4Gd4wQkV7fDju6r.root',
-    password: 'iaUJxe0wyfdOEI4o',
-    database: 'test',
+    host: process.env.DB_HOST || 'gateway01.us-east-1.prod.aws.tidbcloud.com',
+    port: parseInt(process.env.DB_PORT || '4000', 10),
+    user: process.env.DB_USER || '4Gd4wQkV7fDju6r.root',
+    password: process.env.DB_PASSWORD || 'iaUJxe0wyfdOEI4o',
+    database: process.env.DB_NAME || 'test',
     ssl: { minVersion: 'TLSv1.2', rejectUnauthorized: true },
     waitForConnections: true,
     connectionLimit: 10,
-    queueLimit: 0
+    queueLimit: 0,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000
+});
+
+// Manejo de eventos de error en el pool para mitigar ECONNRESET / PROTOCOL_CONNECTION_LOST (Cold Start de TiDB)
+db.on('error', (err) => {
+    console.error('⚠️ Error en el Pool de MySQL/TiDB:', err.message);
+    if (err.code === 'PROTOCOL_CONNECTION_LOST' || err.code === 'ECONNRESET') {
+        console.log('🔄 Conexión perdida con TiDB Cloud. El pool reemplazará la conexión automáticamente.');
+    }
 });
 
 // ==========================================
@@ -57,7 +67,7 @@ function inicializarBaseDeDatos() {
         if (err && err.code !== 'ER_DUP_FIELDNAME') console.error("⚠️ Nota rol:", err.message);
         else console.log("✅ Columna 'rol' verificada (Sistema de Jerarquía listo).");
     });
-    // 5. Tabla de Gastos (NUEVO)
+    // 5. Tabla de Gastos
     const sqlGastos = `CREATE TABLE IF NOT EXISTS gastos (
         id INT AUTO_INCREMENT PRIMARY KEY, 
         descripcion VARCHAR(255), 
@@ -70,6 +80,42 @@ function inicializarBaseDeDatos() {
         else console.log("✅ Tabla 'gastos' verificada.");
     });
 
+    // 6. Columnas de Soft Delete (Perfiles Eliminados)
+    const sqlEliminado = "ALTER TABLE suscripciones ADD COLUMN eliminado TINYINT DEFAULT 0";
+    db.query(sqlEliminado, (err) => { 
+        if (err) {
+            if (err.code !== 'ER_DUP_FIELDNAME' && err.errno !== 1060) console.error("⚠️ Error columna eliminado:", err.message); 
+            else console.log("✅ Columna 'eliminado' verificada en la tabla suscripciones.");
+        } else {
+            console.log("✅ Columna 'eliminado' creada exitosamente.");
+        }
+    });
+
+    const sqlFechaEliminado = "ALTER TABLE suscripciones ADD COLUMN fecha_eliminacion DATETIME DEFAULT NULL";
+    db.query(sqlFechaEliminado, (err) => { 
+        if (err) {
+            if (err.code !== 'ER_DUP_FIELDNAME' && err.errno !== 1060) console.error("⚠️ Error columna fecha_eliminacion:", err.message); 
+            else console.log("✅ Columna 'fecha_eliminacion' verificada en la tabla suscripciones.");
+        } else {
+            console.log("✅ Columna 'fecha_eliminacion' creada exitosamente.");
+        }
+    });
+
+    // 7. Tabla Transactions (Reportes Financieros)
+    const sqlTransactions = `CREATE TABLE IF NOT EXISTS transactions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        type VARCHAR(50) DEFAULT 'VENTA',
+        amount DOUBLE DEFAULT 0,
+        description VARCHAR(255) DEFAULT '',
+        date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        platform VARCHAR(100) DEFAULT '',
+        client_name VARCHAR(255) DEFAULT '',
+        profile_id INT DEFAULT NULL
+    )`;
+    db.query(sqlTransactions, (err) => { 
+        if (err) console.error("❌ Error creando tabla transactions:", err.message); 
+        else console.log("✅ Tabla 'transactions' verificada en TiDB Cloud.");
+    });
 }
 inicializarBaseDeDatos();
 
@@ -129,57 +175,575 @@ const enviarCorreoBienvenida = async (emailDestino, nombreUsuario) => {
 
 // 1. REGISTRO
 app.post('/registro', async (req, res) => {
-    const { nombre, correo, password } = req.body;
-    const saltRounds = 10;
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-    const esJefe = nombre.toLowerCase().includes('leonardo rodriguez') || correo.toLowerCase().startsWith('admin');
-    const rolAsignado = esJefe ? 'admin' : 'cliente';
-
-    const sql = "INSERT INTO usuarios (nombre, correo, password, rol) VALUES (?, ?, ?, ?)";
-
-    db.query(sql, [nombre, correo, hashedPassword, rolAsignado], (err, result) => {
-        if (err) return res.status(500).json({ error: "El correo ya existe o error en DB" });
+    try {
+        const { nombre, correo, password } = req.body;
         
-        // Enviamos correo
-        enviarCorreoBienvenida(correo, nombre);
+        if (!nombre || !correo || !password) {
+            return res.status(400).json({ error: "Todos los campos son obligatorios" });
+        }
 
-        return res.json({ message: "Usuario registrado con éxito" });
-    });
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+        const esJefe = nombre.toLowerCase().includes('leonardo rodriguez') || correo.toLowerCase().startsWith('admin');
+        const rolAsignado = esJefe ? 'admin' : 'cliente';
+
+        const sql = "INSERT INTO usuarios (nombre, correo, password, rol) VALUES (?, ?, ?, ?)";
+
+        db.query(sql, [nombre, correo, hashedPassword, rolAsignado], (err, result) => {
+            if (err) return res.status(500).json({ error: "El correo ya existe o error en DB" });
+            
+            // Enviamos correo
+            enviarCorreoBienvenida(correo, nombre);
+
+            return res.json({ message: "Usuario registrado con éxito" });
+        });
+    } catch (error) {
+        console.error("Error en registro:", error);
+        return res.status(500).json({ error: "Error interno del servidor" });
+    }
 });
 
 // 2. LOGIN
-app.post('/login', (req, res) => {
-    const { correo, password } = req.body;
-    const sql = "SELECT * FROM usuarios WHERE correo = ?";
+app.post('/login', async (req, res) => {
+    try {
+        const { correo, password } = req.body;
 
-    db.query(sql, [correo], async (err, data) => {
-        if (err) return res.status(500).json(err);
-        if (data.length > 0) {
-            const match = await bcrypt.compare(password, data[0].password);
-            if (match) {
-                return res.json({
-                    status: "Success",
-                    user: data[0].nombre,
-                    rol: data[0].rol
-                });
-            } else {
-                return res.json({ status: "Error", message: "Contraseña incorrecta" });
-            }
-        } else {
-            return res.json({ status: "Error", message: "Usuario no encontrado" });
+        if (!correo || !password) {
+            return res.status(400).json({ status: "Error", message: "Correo y contraseña son obligatorios" });
         }
-    });
+
+        const sql = "SELECT * FROM usuarios WHERE correo = ?";
+
+        db.query(sql, [correo], async (err, data) => {
+            if (err) return res.status(500).json(err);
+            if (data.length > 0) {
+                const match = await bcrypt.compare(password, data[0].password);
+                if (match) {
+                    return res.json({
+                        status: "Success",
+                        user: data[0].nombre,
+                        rol: data[0].rol
+                    });
+                } else {
+                    return res.json({ status: "Error", message: "Contraseña incorrecta" });
+                }
+            } else {
+                return res.json({ status: "Error", message: "Usuario no encontrado" });
+            }
+        });
+    } catch (error) {
+        console.error("Error en login:", error);
+        return res.status(500).json({ status: "Error", message: "Error interno del servidor" });
+    }
 });
 
 // ==========================================
 //        OTRAS RUTAS
 // ==========================================
 
-app.get('/clientes', (req, res) => { const sql = "SELECT * FROM suscripciones"; db.query(sql, (err, data) => res.json(err ? err : data)); });
-app.post('/clientes', (req, res) => { const values = [req.body.nombre, req.body.celular, req.body.servicio, req.body.perfil, req.body.fecha_inicio, req.body.fecha_fin, req.body.monto, req.body.correo, req.body.contrasena, req.body.pin]; db.query("INSERT INTO suscripciones (nombre_cliente, numero_celular, servicio, perfil, fecha_inicio, fecha_finalizacion, monto, correo, contrasena, pin_perfil) VALUES (?)", [values], (err) => res.json(err ? err : "Cliente creado")); });
+app.get('/clientes', (req, res) => { 
+    const sql = "SELECT * FROM suscripciones WHERE (eliminado = 0 OR eliminado IS NULL)"; 
+    db.query(sql, (err, data) => {
+        if (err) {
+            console.error("❌ Error en TiDB al consultar /clientes:", err.message);
+            return res.status(500).json({ success: false, error: err.message, data: [] });
+        }
+        return res.json(data);
+    }); 
+});
+
+// ==========================================
+//  ⚡ REQUERIMIENTO 1: ENDPOINT DE PING (KEEP-ALIVE)
+// ==========================================
+// Mantiene despierto el servidor Express y TiDB Serverless al recibir pings periódicos
+app.get('/ping', (req, res) => {
+    db.query("SELECT 1", (err, result) => {
+        if (err) {
+            console.error("❌ Error de ping a la BD:", err.message);
+            return res.status(500).json({ status: "Error", message: "Error al comunicar con la base de datos", error: err.message });
+        }
+        console.log("⚡ Ping exitoso a la base de datos.");
+        return res.json({ status: "OK", message: "Servidor y base de datos activos" });
+    });
+});
+
+// ==========================================
+//  🛒 REQUERIMIENTO 3: REGISTRO INTELIGENTE (STOCK AUTOMÁTICO)
+// ==========================================
+app.post('/clientes', (req, res) => {
+    const { nombre, celular, servicio, fecha_inicio, fecha_fin, monto, correo, contrasena, perfil, pin } = req.body;
+    
+    // Si se proporciona un correo manual, se mantiene el flujo de asignación tradicional
+    if (correo && correo.trim() !== "") {
+        const values = [nombre, celular, servicio, perfil, fecha_inicio, fecha_fin, monto, correo, contrasena, pin];
+        db.query("INSERT INTO suscripciones (nombre_cliente, numero_celular, servicio, perfil, fecha_inicio, fecha_finalizacion, monto, correo, contrasena, pin_perfil) VALUES (?)", [values], (err, result) => {
+            if (err) return res.status(500).json({ error: err.message });
+            
+            const profileId = result ? result.insertId : null;
+            const montoVal = Number(monto) || 0;
+            if (montoVal > 0) {
+                db.query(
+                    "INSERT INTO transactions (type, amount, platform, client_name, profile_id, description, date) VALUES ('VENTA', ?, ?, ?, ?, 'Venta de perfil', NOW())",
+                    [montoVal, servicio || 'Streaming', nombre || 'Cliente', profileId],
+                    (errTx) => {
+                        if (errTx) console.error("⚠️ Error registrando en transactions:", errTx.message);
+                        else console.log(`💸 Transacción VENTA registrada en transactions para ${nombre}`);
+                    }
+                );
+            }
+
+            return res.json("Cliente creado");
+        });
+        return;
+    }
+
+    // Flujo inteligente: Buscar y asignar cuenta y perfil disponible de forma automática
+    db.getConnection((err, connection) => {
+        if (err) return res.status(500).json({ error: "Error de conexión a la base de datos: " + err.message });
+
+        const query = (sql, values) => new Promise((resolve, reject) => {
+            connection.query(sql, values, (err, results) => {
+                if (err) reject(err);
+                else resolve(results);
+            });
+        });
+
+        connection.beginTransaction(async (transactionErr) => {
+            if (transactionErr) {
+                connection.release();
+                return res.status(500).json({ error: "Error al iniciar transacción: " + transactionErr.message });
+            }
+
+            try {
+                // 1. Encontrar una cuenta del servicio solicitado con menos de 5 perfiles ocupados
+                // Ordenar por ocupados (de menor a mayor para balancear) y vencimiento más cercano.
+                // Se utiliza FOR UPDATE para evitar colisiones concurrentes (sobreventa).
+                const selectAccountSql = `
+                    SELECT i.id, i.correo, i.contrasena, COUNT(s.id) as ocupados
+                    FROM inventario i
+                    LEFT JOIN suscripciones s ON i.correo = s.correo AND s.servicio = i.servicio AND s.fecha_finalizacion >= CURDATE() AND (s.eliminado = 0 OR s.eliminado IS NULL)
+                    WHERE i.servicio = ?
+                    GROUP BY i.id, i.correo, i.contrasena
+                    HAVING ocupados < 5
+                    ORDER BY ocupados ASC, i.fecha_vencimiento ASC
+                    LIMIT 1
+                    FOR UPDATE
+                `;
+                
+                const accounts = await query(selectAccountSql, [servicio]);
+                
+                if (accounts.length === 0) {
+                    throw new Error(`No hay cuentas de ${servicio} en stock con perfiles disponibles (menos de 5 ocupados). Por favor, agregue una nueva cuenta vacía al stock.`);
+                }
+
+                const cuentaAsignada = accounts[0];
+                const correoAsignado = cuentaAsignada.correo;
+                const contrasenaAsignada = cuentaAsignada.contrasena;
+
+                // 2. Buscar perfiles ocupados para esta cuenta en suscripciones activas
+                const occupiedProfilesRows = await query(
+                    "SELECT perfil FROM suscripciones WHERE correo = ? AND servicio = ? AND fecha_finalizacion >= CURDATE() AND (eliminado = 0 OR eliminado IS NULL)",
+                    [correoAsignado, servicio]
+                );
+                
+                const occupiedProfilesList = occupiedProfilesRows.map(row => (row.perfil || '').trim().toLowerCase());
+
+                // 3. Determinar el primer slot de perfil libre ("Perfil 1" a "Perfil 5")
+                let perfilAsignado = "";
+                const perfilesPosibles = ["Perfil 1", "Perfil 2", "Perfil 3", "Perfil 4", "Perfil 5"];
+                for (let p of perfilesPosibles) {
+                    if (!occupiedProfilesList.includes(p.toLowerCase())) {
+                        perfilAsignado = p;
+                        break;
+                    }
+                }
+                
+                // Si hay nombres de perfil personalizados y no coincide con la lista, ponemos uno correlativo
+                if (!perfilAsignado) {
+                    perfilAsignado = `Perfil ${cuentaAsignada.ocupados + 1}`;
+                }
+
+                // Usar pin ingresado en la solicitud o dejarlo vacío por defecto
+                const pinAsignado = pin || '';
+
+                // 4. Registrar el nuevo cliente asignándole los datos automáticos
+                const insertSql = `
+                    INSERT INTO suscripciones (nombre_cliente, numero_celular, servicio, perfil, fecha_inicio, fecha_finalizacion, monto, correo, contrasena, pin_perfil)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `;
+                const insertValues = [
+                    nombre, 
+                    celular, 
+                    servicio, 
+                    perfilAsignado, 
+                    fecha_inicio, 
+                    fecha_fin, 
+                    monto === '' || monto === undefined ? 0 : monto, 
+                    correoAsignado, 
+                    contrasenaAsignada, 
+                    pinAsignado
+                ];
+
+                const insertRes = await query(insertSql, insertValues);
+                const profileId = insertRes ? insertRes.insertId : null;
+                const montoVal = Number(monto) || 0;
+                if (montoVal > 0) {
+                    await query(
+                        "INSERT INTO transactions (type, amount, platform, client_name, profile_id, description, date) VALUES ('VENTA', ?, ?, ?, ?, 'Venta de perfil', NOW())",
+                        [montoVal, servicio || 'Streaming', nombre || 'Cliente', profileId]
+                    );
+                    console.log(`💸 Transacción VENTA en stock automático registrada para ${nombre}`);
+                }
+
+                // Consolidamos la transacción
+                await query("COMMIT");
+                connection.release();
+                
+                console.log(`✅ Cliente registrado automáticamente en la cuenta ${correoAsignado} (${perfilAsignado})`);
+                return res.json("Cliente creado");
+
+            } catch (error) {
+                console.error("❌ Error en la transacción de creación de cliente:", error.message);
+                await query("ROLLBACK");
+                connection.release();
+                // Mandamos un código identificable para que la UI alerte el mensaje
+                return res.json({ code: "TRANS_ERROR", sqlMessage: error.message });
+            }
+        });
+    });
+});
+
+// ==========================================
+//  🔄 REQUERIMIENTO 3 (EXT): RENOVACIÓN RÁPIDA (+30 DÍAS)
+// ==========================================
+app.post('/clientes/renovar/:id', (req, res) => {
+    const clienteId = req.params.id;
+
+    db.getConnection((err, connection) => {
+        if (err) return res.status(500).json({ error: "Error de conexión a la base de datos: " + err.message });
+
+        const query = (sql, values) => new Promise((resolve, reject) => {
+            connection.query(sql, values, (err, results) => {
+                if (err) reject(err);
+                else resolve(results);
+            });
+        });
+
+        connection.beginTransaction(async (transactionErr) => {
+            if (transactionErr) {
+                connection.release();
+                return res.status(500).json({ error: "Error al iniciar la transacción: " + transactionErr.message });
+            }
+
+            try {
+                // 1. Obtener la suscripción actual y bloquear la fila
+                const rows = await query("SELECT * FROM suscripciones WHERE id = ? FOR UPDATE", [clienteId]);
+                if (rows.length === 0) {
+                    throw new Error("Cliente no encontrado.");
+                }
+
+                const cliente = rows[0];
+                
+                // Calculamos el precio de esta mensualidad
+                const precioMensual = Number(cliente.monto) || 0; 
+                if (precioMensual <= 0) {
+                    throw new Error("El cliente tiene un monto registrado de S/ 0. Configura un costo mensual válido antes de renovar.");
+                }
+
+                // 2. Calcular la nueva fecha de vencimiento (+30 días)
+                // Si la fecha de finalización actual está en el futuro, sumamos a partir de ella para no quitarle días contratados.
+                // Si ya venció o está vacía, sumamos a partir de hoy.
+                const hoy = new Date();
+                let fechaBase = new Date();
+                
+                if (cliente.fecha_finalizacion) {
+                    const fechaFinalizacion = new Date(cliente.fecha_finalizacion);
+                    if (fechaFinalizacion > hoy) {
+                        fechaBase = fechaFinalizacion;
+                    }
+                }
+                
+                const nuevaFechaFin = new Date(fechaBase);
+                nuevaFechaFin.setDate(nuevaFechaFin.getDate() + 30);
+                
+                const fechaFinStr = nuevaFechaFin.toISOString().split('T')[0];
+                const fechaInicioStr = hoy.toISOString().split('T')[0];
+
+                // 3. Actualizar la suscripción extendiendo la fecha y acumulando el monto pagado.
+                // Esto actualiza dinámicamente "Ventas Totales" y "Ganancia Real" en la UI de VistaStreaming ya que suma todos los montos de la tabla.
+                const nuevoMontoAcumulado = Number(cliente.monto || 0) + precioMensual;
+                
+                await query(
+                    "UPDATE suscripciones SET fecha_inicio = ?, fecha_finalizacion = ?, monto = ?, estado = 'activo' WHERE id = ?",
+                    [fechaInicioStr, fechaFinStr, nuevoMontoAcumulado, clienteId]
+                );
+
+                // Insertar transacción de renovación
+                if (precioMensual > 0) {
+                    await query(
+                        "INSERT INTO transactions (type, amount, platform, client_name, profile_id, description, date) VALUES ('RENOVACION', ?, ?, ?, ?, 'Renovación de perfil (+30 días)', NOW())",
+                        [precioMensual, cliente.servicio || 'Streaming', cliente.nombre_cliente || cliente.nombre || 'Cliente', clienteId]
+                    );
+                    console.log(`💸 Transacción RENOVACION registrada en transactions para ${cliente.nombre_cliente}`);
+                }
+
+                // 4. Insertar registro de venta en 'registro_ventas' para llevar un historial limpio y transparente
+                const insertVentaSql = `
+                    INSERT INTO registro_ventas (producto_id, nombre_producto, cantidad, precio_venta, ganancia, fecha_venta)
+                    VALUES (?, ?, 1, ?, ?, ?)
+                `;
+                const nombreProductoVenta = `Renovación: ${cliente.servicio} - ${cliente.nombre_cliente}`;
+                
+                // La ganancia es el precio total de la venta de esta renovación
+                await query(insertVentaSql, [clienteId, nombreProductoVenta, precioMensual, precioMensual, fechaInicioStr]);
+
+                await query("COMMIT");
+                connection.release();
+                
+                console.log(`✅ Suscripción de ${cliente.nombre_cliente} renovada +30 días. Nuevo monto total acumulado: S/ ${nuevoMontoAcumulado}`);
+                return res.json({ status: "Success", message: "Suscripción renovada por 30 días con éxito" });
+
+            } catch (error) {
+                console.error("❌ Error en la transacción de renovación:", error.message);
+                await query("ROLLBACK");
+                connection.release();
+                return res.status(500).json({ error: error.message });
+            }
+        });
+    });
+});
+
+// ==========================================
+//  📅 REQUERIMIENTO 2: AUTOMATIZACIÓN DE NOTIFICACIONES
+// ==========================================
+// Endpoint que busca vencimientos en las próximas 48 horas y envía alertas por WhatsApp
+app.get('/api/cron/notificaciones-vencimiento', async (req, res) => {
+    try {
+        console.log("⏰ Iniciando revisión de vencimientos (<= 48 horas)...");
+        
+        // Buscamos clientes que vencen entre hoy y los próximos 2 días
+        const sql = `
+            SELECT id, nombre_cliente, numero_celular, servicio, perfil, fecha_finalizacion, monto
+            FROM suscripciones
+            WHERE fecha_finalizacion BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 2 DAY)
+              AND (estado = 'activo' OR estado IS NULL)
+              AND (eliminado = 0 OR eliminado IS NULL)
+        `;
+        
+        db.query(sql, async (err, clientes) => {
+            if (err) {
+                console.error("❌ Error al consultar vencimientos:", err);
+                return res.status(500).json({ error: err.message });
+            }
+            
+            console.log(`🔍 Se encontraron ${clientes.length} clientes por vencer en las próximas 48 horas.`);
+            
+            const envios = [];
+            
+            for (let cliente of clientes) {
+                const celular = cliente.numero_celular || '';
+                if (!celular) {
+                    console.log(`⚠️ El cliente ${cliente.nombre_cliente} no tiene celular registrado. Saltando.`);
+                    continue;
+                }
+
+                // Formateamos la fecha a formato legible local DD/MM/YYYY
+                const fechaFin = new Date(cliente.fecha_finalizacion);
+                const fechaFormateada = `${String(fechaFin.getDate()).padStart(2, '0')}/${String(fechaFin.getMonth() + 1).padStart(2, '0')}/${fechaFin.getFullYear()}`;
+                
+                // Redactar el texto de renovación
+                const mensaje = `Hola *${cliente.nombre_cliente}*, te saluda LeoTech. 👋 Tu cuenta de *${cliente.servicio}* (Perfil: *${cliente.perfil}*) vence el *${fechaFormateada}*. ¿Desearías renovarla para continuar con el servicio sin interrupciones? 🚀`;
+                
+                // Configuración de API de WhatsApp (Modificar con tus datos de Evolution API o Baileys)
+                const WSP_API_URL = process.env.WSP_API_URL || 'http://localhost:8080'; // Endpoint Evolution API
+                const WSP_API_KEY = process.env.WSP_API_KEY || 'YOUR_GLOBAL_API_KEY';  // ApiKey
+                const WSP_INSTANCE = process.env.WSP_INSTANCE || 'leotech_instance';  // Nombre de Instancia
+                
+                let enviado = false;
+                let errorEnvio = null;
+
+                try {
+                    // Limpieza y formateo del celular para el envío
+                    const numeroLimpio = celular.replace(/\D/g, '');
+                    const numeroDestino = numeroLimpio.startsWith('51') ? numeroLimpio : `51${numeroLimpio}`;
+                    
+                    // Endpoint estándar para Evolution API: /message/sendText/{instance}
+                    const response = await fetch(`${WSP_API_URL}/message/sendText/${WSP_INSTANCE}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'apikey': WSP_API_KEY
+                        },
+                        body: JSON.stringify({
+                            number: numeroDestino,
+                            text: mensaje
+                        }),
+                        signal: AbortSignal.timeout(8000) // Timeout de 8 segundos por mensaje
+                    });
+
+                    if (response.ok) {
+                        enviado = true;
+                        console.log(`✉️ WhatsApp enviado con éxito a ${cliente.nombre_cliente} (${numeroDestino})`);
+                    } else {
+                        const errorText = await response.text();
+                        errorEnvio = `Status: ${response.status} - ${errorText}`;
+                        console.error(`❌ Falló WhatsApp a ${cliente.nombre_cliente}. HTTP ${response.status}: ${errorText}`);
+                    }
+                } catch (wspError) {
+                    errorEnvio = wspError.message;
+                    console.error(`❌ Error al conectar con la API de WhatsApp para ${cliente.nombre_cliente}:`, wspError.message);
+                }
+
+                envios.push({
+                    cliente: cliente.nombre_cliente,
+                    celular: celular,
+                    servicio: cliente.servicio,
+                    enviado: enviado,
+                    error: errorEnvio
+                });
+            }
+
+            return res.json({
+                message: `Revisión de vencimientos finalizada. Clientes notificados: ${envios.filter(e => e.enviado).length}`,
+                resultados: envios
+            });
+        });
+    } catch (err) {
+        console.error("❌ Error crítico en cron notificaciones:", err);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
 app.put('/update/:id', (req, res) => { const values = [req.body.nombre, req.body.celular, req.body.servicio, req.body.perfil, req.body.fecha_inicio, req.body.fecha_fin, req.body.monto, req.body.correo, req.body.contrasena, req.body.pin, req.params.id]; db.query("UPDATE suscripciones SET nombre_cliente=?, numero_celular=?, servicio=?, perfil=?, fecha_inicio=?, fecha_finalizacion=?, monto=?, correo=?, contrasena=?, pin_perfil=? WHERE id=?", values, (err) => res.json(err ? err : "Actualizado")); });
-app.delete('/delete/:id', (req, res) => { db.query("DELETE FROM suscripciones WHERE id = ?", [req.params.id], (err) => res.json(err ? err : "Eliminado")); });
+// ==========================================
+//  🗑️ CONTROLADORES DE SOFT DELETE Y RESTAURACIÓN (PERFILES / CLIENTES)
+// ==========================================
+
+// Helper para Soft Delete (Eliminar perfil a la Papelera)
+const softDeleteProfile = (req, res) => {
+    const rawId = req.params.id;
+    const profileId = parseInt(rawId, 10);
+    const targetId = isNaN(profileId) ? rawId : profileId;
+
+    if (!targetId) {
+        console.error("❌ Error Soft Delete: ID de perfil no proporcionado o inválido.");
+        return res.status(400).json({ success: false, error: "ID de perfil no proporcionado o inválido" });
+    }
+
+    console.log(`🗑️ Iniciando Soft Delete para Perfil ID: ${targetId}`);
+    const sql = "UPDATE suscripciones SET eliminado = TRUE, fecha_eliminacion = NOW() WHERE id = ?";
+    
+    db.query(sql, [targetId], (err, result) => {
+        if (err) {
+            console.error(`❌ Error en TiDB al realizar Soft Delete en perfil ID ${targetId}:`, err.message);
+            return res.status(500).json({ success: false, error: "Error de BD TiDB: " + err.message });
+        }
+        
+        if (result.affectedRows === 0) {
+            console.warn(`⚠️ Soft Delete: No se encontró ningún perfil activo con ID ${targetId}`);
+            return res.status(404).json({ success: false, error: "Perfil no encontrado" });
+        }
+
+        console.log(`✅ Soft Delete exitoso. Perfil ID ${targetId} movido a la Papelera.`);
+        return res.json({ success: true, message: "Perfil movido a la Papelera con éxito", affectedRows: result.affectedRows });
+    });
+};
+
+// Helper para Restauración de Perfil
+const restoreProfile = (req, res) => {
+    const rawId = req.params.id;
+    const profileId = parseInt(rawId, 10);
+    const targetId = isNaN(profileId) ? rawId : profileId;
+
+    if (!targetId) {
+        console.error("❌ Error Restaurar: ID de perfil no proporcionado o inválido.");
+        return res.status(400).json({ success: false, error: "ID de perfil no proporcionado o inválido" });
+    }
+
+    console.log(`🔄 Iniciando Restauración para Perfil ID: ${targetId}`);
+    const sql = "UPDATE suscripciones SET eliminado = FALSE, fecha_eliminacion = NULL WHERE id = ?";
+    
+    db.query(sql, [targetId], (err, result) => {
+        if (err) {
+            console.error(`❌ Error en TiDB al restaurar perfil ID ${targetId}:`, err.message);
+            return res.status(500).json({ success: false, error: "Error de BD TiDB: " + err.message });
+        }
+
+        if (result.affectedRows === 0) {
+            console.warn(`⚠️ Restauración: No se encontró ningún perfil con ID ${targetId}`);
+            return res.status(404).json({ success: false, error: "Perfil no encontrado" });
+        }
+
+        console.log(`✅ Restauración exitosa. Perfil ID ${targetId} restaurado a la lista principal.`);
+        return res.json({ success: true, message: "Perfil restaurado con éxito", affectedRows: result.affectedRows });
+    });
+};
+
+// Helper para Hard Delete (Eliminación Definitiva)
+const hardDeleteProfile = (req, res) => {
+    const rawId = req.params.id;
+    const profileId = parseInt(rawId, 10);
+    const targetId = isNaN(profileId) ? rawId : profileId;
+
+    if (!targetId) {
+        console.error("❌ Error Destruir: ID de perfil no proporcionado o inválido.");
+        return res.status(400).json({ success: false, error: "ID de perfil no proporcionado o inválido" });
+    }
+
+    console.log(`💥 Iniciando Hard Delete (Eliminación permanente) para Perfil ID: ${targetId}`);
+    const sql = "DELETE FROM suscripciones WHERE id = ?";
+    
+    db.query(sql, [targetId], (err, result) => {
+        if (err) {
+            console.error(`❌ Error en TiDB al eliminar permanentemente perfil ID ${targetId}:`, err.message);
+            return res.status(500).json({ success: false, error: "Error de BD TiDB: " + err.message });
+        }
+
+        if (result.affectedRows === 0) {
+            console.warn(`⚠️ Hard Delete: No se encontró ningún perfil con ID ${targetId}`);
+            return res.status(404).json({ success: false, error: "Perfil no encontrado" });
+        }
+
+        console.log(`✅ Perfil ID ${targetId} eliminado permanentemente.`);
+        return res.json({ success: true, message: "Perfil eliminado permanentemente", affectedRows: result.affectedRows });
+    });
+};
+
+// Helper para Obtener Perfiles Eliminados
+const getDeletedProfiles = (req, res) => {
+    const sql = "SELECT * FROM suscripciones WHERE eliminado = 1 ORDER BY fecha_eliminacion DESC";
+    db.query(sql, (err, data) => {
+        if (err) {
+            console.error("❌ Error en TiDB al consultar perfiles eliminados:", err.message);
+            return res.status(500).json({ success: false, error: err.message, data: [] });
+        }
+        return res.json(data);
+    });
+};
+
+// --- RUTAS CLIENTES ---
+app.delete('/delete/:id', softDeleteProfile);
+app.get('/clientes/eliminados', getDeletedProfiles);
+app.put('/clientes/restaurar/:id', restoreProfile);
+app.delete('/clientes/destruir/:id', hardDeleteProfile);
+
+// --- RUTAS ALIAS COMPATIBILIDAD PERFILES (/profiles) ---
+app.get('/profiles', (req, res) => { 
+    const sql = "SELECT * FROM suscripciones WHERE (eliminado = 0 OR eliminado IS NULL)";
+    db.query(sql, (err, data) => {
+        if (err) {
+            console.error("❌ Error en TiDB al consultar /profiles:", err.message);
+            return res.status(500).json({ success: false, error: err.message, data: [] });
+        }
+        return res.json(data);
+    });
+});
+app.get('/profiles/eliminados', getDeletedProfiles);
+app.delete('/profiles/:id', softDeleteProfile);
+app.put('/profiles/restaurar/:id', restoreProfile);
+app.delete('/profiles/destruir/:id', hardDeleteProfile);
+
 
 app.get('/productos', (req, res) => { db.query("SELECT * FROM productos", (err, data) => res.json(err ? err : data)); });
 app.post('/productos/registrar', (req, res) => { const { nombre, precio, costo, categoria, imagen_url, descripcion, stock, oferta, visible } = req.body; db.query('INSERT INTO productos (nombre, precio, costo, categoria, imagen_url, descripcion, stock, oferta, visible) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [nombre, precio, costo || 0, categoria, imagen_url, descripcion || '', stock || 10, oferta ? 1 : 0, visible ? 1 : 0], (err) => { if (err) return res.status(500).send(err); res.send('Registrado'); }); });
@@ -222,4 +786,52 @@ app.delete('/gastos/:id', (req, res) => {
         return res.json({ message: "Gasto eliminado" });
     });
 });
+
+// ==========================================
+//  📊 RUTAS DE REPORTES FINANCIEROS Y TRANSACCIONES
+// ==========================================
+
+// Endpoint para listar transacciones registradas
+app.get('/reportes/transacciones', (req, res) => {
+    const sql = "SELECT * FROM transactions ORDER BY date DESC, id DESC";
+    db.query(sql, (err, data) => {
+        if (err) {
+            console.error("❌ Error al obtener transacciones:", err.message);
+            return res.status(500).json({ success: false, error: err.message, data: [] });
+        }
+        return res.json(data);
+    });
+});
+
+// Endpoint para obtener resumen financiero y desgloses
+app.get('/reportes/resumen', (req, res) => {
+    const sqlTx = "SELECT platform, SUM(amount) AS totalAmount, COUNT(*) AS totalSales FROM transactions GROUP BY platform ORDER BY totalAmount DESC";
+    const sqlInv = "SELECT SUM(costo) AS totalInversion FROM inventario";
+    const sqlTotalTx = "SELECT SUM(amount) AS liquidezTotal, COUNT(*) AS totalVentas FROM transactions";
+    
+    db.query(sqlTotalTx, (err, totalRows) => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+        db.query(sqlInv, (err2, invRows) => {
+            if (err2) return res.status(500).json({ success: false, error: err2.message });
+            db.query(sqlTx, (err3, platRows) => {
+                if (err3) return res.status(500).json({ success: false, error: err3.message });
+                
+                const liquidezTotal = Number(totalRows[0]?.liquidezTotal || 0);
+                const totalVentas = Number(totalRows[0]?.totalVentas || 0);
+                const inversionStock = Number(invRows[0]?.totalInversion || 0);
+                const gananciaNeta = liquidezTotal - inversionStock;
+                
+                return res.json({
+                    success: true,
+                    liquidezTotal,
+                    inversionStock,
+                    gananciaNeta,
+                    totalVentas,
+                    desglosePlataformas: platRows
+                });
+            });
+        });
+    });
+});
+
 app.listen(PORT, () => { console.log(`🚀 Servidor escuchando en el puerto ${PORT}`); });
