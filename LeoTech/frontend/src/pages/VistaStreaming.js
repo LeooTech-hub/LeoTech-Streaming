@@ -1,6 +1,26 @@
+
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import dayjs from 'dayjs';
+
+// --- HELPERS EXTERNOS Y CONSTANTES ---
+const EMPTY_ARRAY = [];
+
+const getFechaVencimientoStr = (c) => {
+  if (!c) return '';
+  return c.fecha_finalizacion || c.fecha_fin || c.vencimiento || c.fechaVencimiento || '';
+};
+
+const compararVencimiento = (a, b) => {
+  const fA = getFechaVencimientoStr(a);
+  const fB = getFechaVencimientoStr(b);
+
+  if (!fA && !fB) return 0;
+  if (!fA) return 1;
+  if (!fB) return -1;
+
+  return dayjs(fA).valueOf() - dayjs(fB).valueOf();
+};
 
 function VistaStreaming({ api }) {
   // --- DATOS ---
@@ -41,7 +61,6 @@ function VistaStreaming({ api }) {
   });
 
   // --- CARGAR DATOS ---
-  // --- CARGAR DATOS ---
   const cargarDatos = useCallback(() => {
     const ts = Date.now(); 
     axios.get(`${api}/clientes?t=${ts}`).then(res => {
@@ -71,27 +90,10 @@ function VistaStreaming({ api }) {
 
   useEffect(() => { cargarDatos(); }, [cargarDatos]);
 
-  // --- HELPER DE FECHA DE VENCIMIENTO ---
-  const getFechaVencimientoStr = (c) => {
-    if (!c) return '';
-    return c.fecha_finalizacion || c.fecha_fin || c.vencimiento || c.fechaVencimiento || '';
-  };
-
-  const compararVencimiento = useCallback((a, b) => {
-    const fA = getFechaVencimientoStr(a);
-    const fB = getFechaVencimientoStr(b);
-
-    if (!fA && !fB) return 0;
-    if (!fA) return 1;
-    if (!fB) return -1;
-
-    return dayjs(fA).valueOf() - dayjs(fB).valueOf();
-  }, []);
-
-  // --- CÁLCULOS SEGUROS ---
-  const safeClientes = Array.isArray(dataClientes) ? dataClientes : [];
-  const safeInventario = Array.isArray(dataInventario) ? dataInventario : [];
-  const safeEliminados = Array.isArray(dataEliminados) ? dataEliminados : [];
+  // --- CÁLCULOS SEGUROS MEMOIZADOS ---
+  const safeClientes = useMemo(() => (Array.isArray(dataClientes) ? dataClientes : EMPTY_ARRAY), [dataClientes]);
+  const safeInventario = useMemo(() => (Array.isArray(dataInventario) ? dataInventario : EMPTY_ARRAY), [dataInventario]);
+  const safeEliminados = useMemo(() => (Array.isArray(dataEliminados) ? dataEliminados : EMPTY_ARRAY), [dataEliminados]);
 
   const totalIngresosClientes = safeClientes.reduce((acc, cliente) => acc + Number(cliente.monto || 0), 0);
   const inversionRealStock = safeInventario.reduce((acc, cuenta) => acc + Number(cuenta.costo || 0), 0);
@@ -120,11 +122,16 @@ function VistaStreaming({ api }) {
         const diasRestantes = fechaFin.diff(hoy, 'day');
         return diasRestantes <= 3;
     }).sort(compararVencimiento);
-  }, [safeClientes, compararVencimiento]);
+  }, [safeClientes]);
 
-  // FILTRADO
-  const clientesFiltrados = safeClientes.filter(c => filtroCliente === 'Todos' ? true : c.servicio === filtroCliente);
-  const stockFiltrado = safeInventario.filter(i => filtroStock === 'Todos' ? true : i.servicio === filtroStock);
+  // FILTRADO MEMOIZADO
+  const clientesFiltrados = useMemo(() => {
+    return safeClientes.filter(c => filtroCliente === 'Todos' ? true : c.servicio === filtroCliente);
+  }, [safeClientes, filtroCliente]);
+
+  const stockFiltrado = useMemo(() => {
+    return safeInventario.filter(i => filtroStock === 'Todos' ? true : i.servicio === filtroStock);
+  }, [safeInventario, filtroStock]);
 
   // AGRUPACIÓN Y ORDENAMIENTO DEUDORES/VENCIDOS PRIMERO
   const clientesAgrupados = useMemo(() => {
@@ -140,7 +147,7 @@ function VistaStreaming({ api }) {
     });
 
     return grupos;
-  }, [clientesFiltrados, compararVencimiento]);
+  }, [clientesFiltrados]);
 
   // COLORES MARCA
   const getBrandColor = (servicio) => {
