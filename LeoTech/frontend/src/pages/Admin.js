@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import VistaProductos from './VistaProductos';
 import VistaStreaming from './VistaStreaming';
+import VistaReportes from './VistaReportes';
 import API_URL from '../api';
 
 function Admin() {
@@ -10,27 +11,35 @@ function Admin() {
 
   return (
     <div className="container mt-4 mb-5" id="form-top">
-      <h2 className="text-center fw-bold mb-4" style={{color:'#343a40'}}>PANEL ADMIN</h2>
+      <h2 className="text-center fw-bold mb-4" style={{ color: '#343a40' }}>PANEL ADMIN</h2>
       
-      <div className="d-flex justify-content-center gap-3 mb-5">
+      <div className="d-flex justify-content-center flex-wrap gap-2 gap-md-3 mb-5">
         <button 
-            className={`btn rounded-pill px-4 fw-bold ${pestanaActiva==='productos'?'btn-dark':'btn-light shadow-sm'}`} 
-            onClick={()=>setPestanaActiva('productos')}>
-            PRODUCTOS Y GASTOS
+          className={`btn rounded-pill px-4 fw-bold ${pestanaActiva === 'productos' ? 'btn-dark' : 'btn-light shadow-sm'}`} 
+          onClick={() => setPestanaActiva('productos')}
+        >
+          <i className="bi bi-box-seam me-2"></i>PRODUCTOS Y GASTOS
         </button>
+
         <button 
-            className={`btn rounded-pill px-4 fw-bold ${pestanaActiva==='clientes'?'btn-dark':'btn-light shadow-sm'}`} 
-            onClick={()=>setPestanaActiva('clientes')}>
-            STREAMING
+          className={`btn rounded-pill px-4 fw-bold ${pestanaActiva === 'clientes' ? 'btn-dark' : 'btn-light shadow-sm'}`} 
+          onClick={() => setPestanaActiva('clientes')}
+        >
+          <i className="bi bi-tv me-2"></i>STREAMING
+        </button>
+
+        <button 
+          className={`btn rounded-pill px-4 fw-bold ${pestanaActiva === 'reportes' ? 'btn-success text-white shadow-sm' : 'btn-light shadow-sm'}`} 
+          onClick={() => setPestanaActiva('reportes')}
+        >
+          <i className="bi bi-graph-up-arrow me-2"></i>REPORTES Y LIQUIDEZ
         </button>
       </div>
 
       {/* Renderizado Condicional de Componentes */}
-      {pestanaActiva === 'productos' ? (
-          <VistaProductos api={URL_API} />
-      ) : (
-          <VistaStreaming api={URL_API} />
-      )}
+      {pestanaActiva === 'productos' && <VistaProductos api={URL_API} />}
+      {pestanaActiva === 'clientes' && <VistaStreaming api={URL_API} />}
+      {pestanaActiva === 'reportes' && <VistaReportes api={URL_API} />}
 
     </div>
   );

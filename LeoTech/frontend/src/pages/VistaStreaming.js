@@ -41,11 +41,32 @@ function VistaStreaming({ api }) {
   });
 
   // --- CARGAR DATOS ---
+  // --- CARGAR DATOS ---
   const cargarDatos = useCallback(() => {
     const ts = Date.now(); 
-    axios.get(`${api}/clientes?t=${ts}`).then(res => setDataClientes(res.data)).catch(err => console.error(err));
-    axios.get(`${api}/clientes/eliminados?t=${ts}`).then(res => setDataEliminados(res.data)).catch(err => console.error(err));
-    axios.get(`${api}/inventario?t=${ts}`).then(res => setDataInventario(res.data)).catch(err => console.error(err));
+    axios.get(`${api}/clientes?t=${ts}`).then(res => {
+      const list = Array.isArray(res.data) ? res.data : (Array.isArray(res.data?.data) ? res.data.data : []);
+      setDataClientes(list);
+    }).catch(err => {
+      console.error("Error al cargar clientes:", err);
+      setDataClientes([]);
+    });
+
+    axios.get(`${api}/clientes/eliminados?t=${ts}`).then(res => {
+      const list = Array.isArray(res.data) ? res.data : (Array.isArray(res.data?.data) ? res.data.data : []);
+      setDataEliminados(list);
+    }).catch(err => {
+      console.error("Error al cargar eliminados:", err);
+      setDataEliminados([]);
+    });
+
+    axios.get(`${api}/inventario?t=${ts}`).then(res => {
+      const list = Array.isArray(res.data) ? res.data : (Array.isArray(res.data?.data) ? res.data.data : []);
+      setDataInventario(list);
+    }).catch(err => {
+      console.error("Error al cargar inventario:", err);
+      setDataInventario([]);
+    });
   }, [api]); 
 
   useEffect(() => { cargarDatos(); }, [cargarDatos]);
@@ -67,12 +88,16 @@ function VistaStreaming({ api }) {
     return dayjs(fA).valueOf() - dayjs(fB).valueOf();
   }, []);
 
-  // --- CÁLCULOS ---
-  const totalIngresosClientes = dataClientes.reduce((acc, cliente) => acc + Number(cliente.monto || 0), 0);
-  const inversionRealStock = dataInventario.reduce((acc, cuenta) => acc + Number(cuenta.costo || 0), 0);
+  // --- CÁLCULOS SEGUROS ---
+  const safeClientes = Array.isArray(dataClientes) ? dataClientes : [];
+  const safeInventario = Array.isArray(dataInventario) ? dataInventario : [];
+  const safeEliminados = Array.isArray(dataEliminados) ? dataEliminados : [];
+
+  const totalIngresosClientes = safeClientes.reduce((acc, cliente) => acc + Number(cliente.monto || 0), 0);
+  const inversionRealStock = safeInventario.reduce((acc, cuenta) => acc + Number(cuenta.costo || 0), 0);
   const gananciaNetaClientes = totalIngresosClientes - inversionRealStock;
 
-  const reportePlataformas = dataClientes.reduce((acc, curr) => {
+  const reportePlataformas = safeClientes.reduce((acc, curr) => {
     const plat = curr.servicio || 'Otros';
     if (!acc[plat]) acc[plat] = { cantidad: 0, dinero: 0 };
     acc[plat].cantidad += 1;
@@ -80,7 +105,7 @@ function VistaStreaming({ api }) {
     return acc;
   }, {});
 
-  const conteoStock = dataInventario.reduce((acc, curr) => {
+  const conteoStock = safeInventario.reduce((acc, curr) => {
     acc[curr.servicio] = (acc[curr.servicio] || 0) + 1;
     return acc;
   }, {});
@@ -88,18 +113,18 @@ function VistaStreaming({ api }) {
   // --- LÓGICA DE NOTIFICACIONES ---
   const clientesPorVencer = useMemo(() => {
     const hoy = dayjs();
-    return dataClientes.filter(c => {
+    return safeClientes.filter(c => {
         const fechaStr = getFechaVencimientoStr(c);
         if (!fechaStr) return false;
         const fechaFin = dayjs(fechaStr);
         const diasRestantes = fechaFin.diff(hoy, 'day');
         return diasRestantes <= 3;
     }).sort(compararVencimiento);
-  }, [dataClientes, compararVencimiento]);
+  }, [safeClientes, compararVencimiento]);
 
   // FILTRADO
-  const clientesFiltrados = dataClientes.filter(c => filtroCliente === 'Todos' ? true : c.servicio === filtroCliente);
-  const stockFiltrado = dataInventario.filter(i => filtroStock === 'Todos' ? true : i.servicio === filtroStock);
+  const clientesFiltrados = safeClientes.filter(c => filtroCliente === 'Todos' ? true : c.servicio === filtroCliente);
+  const stockFiltrado = safeInventario.filter(i => filtroStock === 'Todos' ? true : i.servicio === filtroStock);
 
   // AGRUPACIÓN Y ORDENAMIENTO DEUDORES/VENCIDOS PRIMERO
   const clientesAgrupados = useMemo(() => {
@@ -140,50 +165,103 @@ function VistaStreaming({ api }) {
 
   const handleEliminar = (target, tipo) => { 
     if (tipo === 'cliente') {
-      const clienteObj = typeof target === 'object' ? target : dataClientes.find(c => c.id === target);
-      const nombreCliente = clienteObj ? (clienteObj.nombre_cliente || clienteObj.nombre || '>>> LIBRE <<<') : 'Perfil';
+      const clienteObj = typeof target === 'object' ? target : safeClientes.find(c => c.id === target);
       const id = typeof target === 'object' ? target.id : target;
+      const nombreCliente = clienteObj ? (clienteObj.nombre_cliente || clienteObj.nombre || '>>> LIBRE <<<') : 'Perfil';
+
+      if (!id) {
+        mostrarToast("ID de perfil no encontrado", "danger");
+        return;
+      }
 
       if (!window.confirm(`¿Mover el perfil de "${nombreCliente}" a la Papelera?`)) return; 
 
-      axios.delete(`${api}/delete/${id}`).then(() => {
-        cargarDatos();
+      // Actualización optimista del estado React
+      const perfilEliminado = clienteObj ? { ...clienteObj, eliminado: 1, fecha_eliminacion: new Date().toISOString() } : null;
+      setDataClientes(prev => (Array.isArray(prev) ? prev.filter(c => c.id !== id) : []));
+      if (perfilEliminado) {
+        setDataEliminados(prev => (Array.isArray(prev) ? [perfilEliminado, ...prev] : [perfilEliminado]));
+      }
+
+      axios.delete(`${api}/delete/${id}`).then(res => {
+        if (res.data && res.data.success === false) {
+          throw new Error(res.data.error || "Error al mover a la papelera");
+        }
         mostrarToast(`Perfil de "${nombreCliente}" movido a la Papelera 🗑️`, 'warning');
+        cargarDatos();
       }).catch(err => {
-        console.error(err);
+        console.error("Error al mover a la papelera:", err);
         mostrarToast("Error al mover perfil a la papelera", "danger");
+        cargarDatos();
       });
     } else {
       const id = typeof target === 'object' ? target.id : target;
+      if (!id) return;
       if (!window.confirm("¿Eliminar esta cuenta del stock?")) return; 
-      axios.delete(`${api}/inventario/${id}`).then(() => {
-        cargarDatos();
+
+      setDataInventario(prev => (Array.isArray(prev) ? prev.filter(i => i.id !== id) : []));
+
+      axios.delete(`${api}/inventario/${id}`).then(res => {
+        if (res.data && res.data.success === false) {
+          throw new Error(res.data.error || "Error al eliminar del stock");
+        }
         mostrarToast("Cuenta eliminada del stock", "warning");
+        cargarDatos();
       }).catch(err => {
-        console.error(err);
+        console.error("Error al eliminar stock:", err);
         mostrarToast("Error al eliminar cuenta del stock", "danger");
+        cargarDatos();
       }); 
     }
   };
 
   const handleRestaurar = (id, nombre) => {
-    axios.put(`${api}/clientes/restaurar/${id}`).then(() => {
-      cargarDatos();
+    if (!id) {
+      mostrarToast("ID de perfil no encontrado", "danger");
+      return;
+    }
+
+    // Actualización optimista del estado React
+    const perfilRestaurado = safeEliminados.find(item => item.id === id);
+    setDataEliminados(prev => (Array.isArray(prev) ? prev.filter(item => item.id !== id) : []));
+    if (perfilRestaurado) {
+      setDataClientes(prev => (Array.isArray(prev) ? [...prev, { ...perfilRestaurado, eliminado: 0, fecha_eliminacion: null }] : [{ ...perfilRestaurado, eliminado: 0, fecha_eliminacion: null }]));
+    }
+
+    axios.put(`${api}/clientes/restaurar/${id}`).then(res => {
+      if (res.data && res.data.success === false) {
+        throw new Error(res.data.error || "Error al restaurar perfil");
+      }
       mostrarToast(`Perfil "${nombre || 'Libre'}" restaurado con éxito 🎉`, 'success');
+      cargarDatos();
     }).catch(err => {
-      console.error(err);
+      console.error("Error al restaurar perfil:", err);
       mostrarToast("Error al restaurar perfil", "danger");
+      cargarDatos();
     });
   };
 
   const handleEliminarDefinitivo = (id, nombre) => {
+    if (!id) {
+      mostrarToast("ID de perfil no encontrado", "danger");
+      return;
+    }
+
     if (!window.confirm(`⚠️ ¿Estás seguro de ELIMINAR DEFINITIVAMENTE el perfil de "${nombre}"?\nEsta acción no se puede deshacer.`)) return;
-    axios.delete(`${api}/clientes/destruir/${id}`).then(() => {
-      cargarDatos();
+
+    // Actualización optimista del estado React
+    setDataEliminados(prev => (Array.isArray(prev) ? prev.filter(item => item.id !== id) : []));
+
+    axios.delete(`${api}/clientes/destruir/${id}`).then(res => {
+      if (res.data && res.data.success === false) {
+        throw new Error(res.data.error || "Error al eliminar definitivamente");
+      }
       mostrarToast(`Perfil "${nombre}" eliminado permanentemente`, 'danger');
+      cargarDatos();
     }).catch(err => {
-      console.error(err);
+      console.error("Error al eliminar definitivamente:", err);
       mostrarToast("Error al eliminar definitivamente", "danger");
+      cargarDatos();
     });
   };
 
