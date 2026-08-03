@@ -243,13 +243,21 @@ app.post('/login', async (req, res) => {
 // ==========================================
 
 app.get('/clientes', (req, res) => { 
-    const sql = "SELECT * FROM suscripciones WHERE (eliminado = 0 OR eliminado IS NULL)"; 
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    const sql = "SELECT * FROM suscripciones WHERE (eliminado = 0 OR eliminado IS NULL OR eliminado IS FALSE)"; 
     db.query(sql, (err, data) => {
         if (err) {
             console.error("❌ Error en TiDB al consultar /clientes:", err.message);
             return res.status(500).json({ success: false, error: err.message, data: [] });
         }
-        return res.json(data);
+        const normalizedData = Array.isArray(data) ? data.map(item => ({
+            ...item,
+            eliminado: (item.eliminado == 1 || item.eliminado === true || item.eliminado === '1' || item.eliminado === 'true') ? 1 : 0
+        })) : [];
+        return res.json(normalizedData);
     }); 
 });
 
@@ -728,13 +736,26 @@ const hardDeleteProfile = (req, res) => {
 
 // Helper para Obtener Perfiles Eliminados
 const getDeletedProfiles = (req, res) => {
-    const sql = "SELECT * FROM suscripciones WHERE eliminado = 1 ORDER BY fecha_eliminacion DESC";
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    // Consulta SQL a TiDB filtrando por eliminado = 1 o eliminado IS TRUE
+    const sql = "SELECT * FROM suscripciones WHERE (eliminado = 1 OR eliminado IS TRUE) ORDER BY fecha_eliminacion DESC";
     db.query(sql, (err, data) => {
         if (err) {
             console.error("❌ Error en TiDB al consultar perfiles eliminados:", err.message);
             return res.status(500).json({ success: false, error: err.message, data: [] });
         }
-        return res.json(data);
+
+        // Normalización de valores booleanos/números de `eliminado`
+        const normalizedData = Array.isArray(data) ? data.map(item => ({
+            ...item,
+            eliminado: (item.eliminado == 1 || item.eliminado === true || item.eliminado === '1' || item.eliminado === 'true') ? 1 : 0
+        })) : [];
+
+        console.log(`[API /clientes/eliminados] Se enviaron ${normalizedData.length} registros de la papelera desde TiDB.`);
+        return res.json(normalizedData);
     });
 };
 

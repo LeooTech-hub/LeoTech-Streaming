@@ -2,6 +2,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import dayjs from 'dayjs';
+import { NO_CACHE_HEADERS, normalizeEliminado } from '../api';
 
 // --- HELPERS EXTERNOS Y CONSTANTES ---
 const EMPTY_ARRAY = [];
@@ -75,24 +76,30 @@ function VistaStreaming({ api }) {
 
   // --- CARGAR DATOS ---
   const cargarDatos = useCallback(() => {
-    const ts = Date.now(); 
-    axios.get(`${api}/clientes?t=${ts}`).then(res => {
+    const ts = `${Date.now()}_${Math.floor(Math.random() * 1000000)}`; 
+    const headers = NO_CACHE_HEADERS;
+
+    axios.get(`${api}/clientes?t=${ts}`, { headers }).then(res => {
       const list = Array.isArray(res.data) ? res.data : (Array.isArray(res.data?.data) ? res.data.data : []);
-      setDataClientes(list);
+      const normalized = normalizeEliminado(list);
+      console.log(`[VistaStreaming] Clientes activos recibidos desde la API: ${normalized.length}`);
+      setDataClientes(normalized);
     }).catch(err => {
       console.error("Error al cargar clientes:", err);
       setDataClientes([]);
     });
 
-    axios.get(`${api}/clientes/eliminados?t=${ts}`).then(res => {
+    axios.get(`${api}/clientes/eliminados?t=${ts}`, { headers }).then(res => {
       const list = Array.isArray(res.data) ? res.data : (Array.isArray(res.data?.data) ? res.data.data : []);
-      setDataEliminados(list);
+      const normalized = normalizeEliminado(list);
+      console.log(`[VistaStreaming API Audit] Elementos de la papelera recibidos desde la API: ${normalized.length}`, normalized);
+      setDataEliminados(normalized);
     }).catch(err => {
       console.error("Error al cargar eliminados:", err);
       setDataEliminados([]);
     });
 
-    axios.get(`${api}/inventario?t=${ts}`).then(res => {
+    axios.get(`${api}/inventario?t=${ts}`, { headers }).then(res => {
       const list = Array.isArray(res.data) ? res.data : (Array.isArray(res.data?.data) ? res.data.data : []);
       setDataInventario(list);
     }).catch(err => {
@@ -103,10 +110,35 @@ function VistaStreaming({ api }) {
 
   useEffect(() => { cargarDatos(); }, [cargarDatos]);
 
-  // --- CÁLCULOS SEGUROS MEMOIZADOS ---
-  const safeClientes = useMemo(() => (Array.isArray(dataClientes) ? dataClientes : EMPTY_ARRAY), [dataClientes]);
+  // --- CÁLCULOS SEGUROS MEMOIZADOS Y FILTRO FLEXIBLE PAPELERA ---
+  // Evaluamos tanto valores numéricos como booleanos provenientes de TiDB:
+  // (p.eliminado == 1 || p.eliminado === true)
+  const enPapelera = useMemo(() => {
+    const directos = Array.isArray(dataEliminados) ? dataEliminados : [];
+    const desdeClientes = Array.isArray(dataClientes) ? dataClientes.filter(p => p.eliminado === 1 || p.eliminado === true || p.eliminado === '1' || p.eliminado === 'true' || Number(p.eliminado) === 1) : [];
+
+    const mapaPapelera = new Map();
+    [...directos, ...desdeClientes].forEach(p => {
+      if (p && p.id != null) {
+        mapaPapelera.set(p.id, {
+          ...p,
+          eliminado: 1
+        });
+      }
+    });
+
+    const resultado = Array.from(mapaPapelera.values());
+    console.log(`[VistaStreaming Screen Audit] Total de elementos de la papelera leídos en pantalla: ${resultado.length}`);
+    return resultado;
+  }, [dataEliminados, dataClientes]);
+
+  const safeClientes = useMemo(() => {
+    if (!Array.isArray(dataClientes)) return EMPTY_ARRAY;
+    return dataClientes.filter(c => !(c.eliminado === 1 || c.eliminado === true || c.eliminado === '1' || c.eliminado === 'true' || Number(c.eliminado) === 1));
+  }, [dataClientes]);
+
   const safeInventario = useMemo(() => (Array.isArray(dataInventario) ? dataInventario : EMPTY_ARRAY), [dataInventario]);
-  const safeEliminados = useMemo(() => (Array.isArray(dataEliminados) ? dataEliminados : EMPTY_ARRAY), [dataEliminados]);
+  const safeEliminados = enPapelera;
 
   const totalIngresosClientes = safeClientes.reduce((acc, cliente) => acc + Number(cliente.monto || 0), 0);
   const inversionRealStock = safeInventario.reduce((acc, cuenta) => acc + Number(cuenta.costo || 0), 0);
@@ -470,15 +502,18 @@ function VistaStreaming({ api }) {
         <div className="position-absolute top-0 end-0 mt-n4 me-2 d-flex gap-2 align-items-center" style={{zIndex: 1000}}>
             <button 
                 className="btn btn-light shadow position-relative rounded-pill border d-flex align-items-center gap-2 px-3" 
-                onClick={() => setMostrarPapelera(true)}
+                onClick={() => {
+                    setMostrarPapelera(true);
+                    cargarDatos();
+                }}
                 style={{height: '50px'}}
                 title="Historial de Perfiles Eliminados"
             >
                 <i className="bi bi-trash3-fill text-danger" style={{fontSize: '1.2rem'}}></i>
                 <span className="fw-bold text-dark d-none d-sm-inline" style={{fontSize: '0.85rem'}}>Papelera</span>
-                {dataEliminados.length > 0 && (
+                {enPapelera.length > 0 && (
                     <span className="badge rounded-pill bg-danger">
-                        {dataEliminados.length}
+                        {enPapelera.length}
                     </span>
                 )}
             </button>
@@ -860,7 +895,7 @@ function VistaStreaming({ api }) {
                 <div className="modal-body p-4 bg-light">
                   
                   {/* BARRA DE BÚSQUEDA */}
-                  {dataEliminados.length > 0 && (
+                  {enPapelera.length > 0 && (
                     <div className="mb-3">
                       <div className="input-group shadow-sm">
                         <span className="input-group-text bg-white border-end-0"><i className="bi bi-search text-muted"></i></span>
@@ -881,7 +916,7 @@ function VistaStreaming({ api }) {
                   )}
 
                   {/* LISTADO DE ELIMINADOS */}
-                  {dataEliminados.length === 0 ? (
+                  {enPapelera.length === 0 ? (
                     <div className="text-center py-5">
                       <div className="mb-3 text-muted opacity-50">
                         <i className="bi bi-trash3" style={{ fontSize: '3.5rem' }}></i>
@@ -902,7 +937,7 @@ function VistaStreaming({ api }) {
                           </tr>
                         </thead>
                         <tbody>
-                          {dataEliminados
+                          {enPapelera
                             .filter(item => {
                               if (!filtroPapelera) return true;
                               const term = filtroPapelera.toLowerCase();
