@@ -46,6 +46,19 @@ function VistaStreaming({ api }) {
   const [editandoStock, setEditandoStock] = useState(false);
   const [stockEditarId, setStockEditarId] = useState(null);
 
+  // --- ESTADO RENOVACIÓN PERFIL ---
+  const [perfilRenovar, setPerfilRenovar] = useState(null);
+  const [formRenovar, setFormRenovar] = useState({
+    id: null,
+    nombre_cliente: '',
+    servicio: 'Netflix',
+    perfil: '',
+    pin: '',
+    monto: '',
+    fecha_finalizacion: ''
+  });
+  const [cargandoRenovacion, setCargandoRenovacion] = useState(false);
+
   // --- FORMULARIOS ---
   const [formCliente, setFormCliente] = useState({ 
     nombre: '', celular: '', servicio: 'Netflix', perfil: '', pin: '', 
@@ -366,6 +379,63 @@ function VistaStreaming({ api }) {
       setEditandoCliente(true); setClienteEditarId(c.id); window.scrollTo({ top: 0, behavior: 'smooth' }); 
   };
 
+  // --- HANDLERS RENOVACIÓN DE PERFIL ---
+  const handleAbrirModalRenovar = (c) => {
+    const hoy = dayjs();
+    const fechaFinActualStr = getFechaVencimientoStr(c);
+    let baseDate = hoy;
+    
+    if (fechaFinActualStr) {
+      const fin = dayjs(fechaFinActualStr);
+      if (fin.isAfter(hoy)) {
+        baseDate = fin;
+      }
+    }
+    
+    const nuevaFechaVencimiento = baseDate.add(30, 'day').format('YYYY-MM-DD');
+
+    setFormRenovar({
+      id: c.id,
+      nombre_cliente: c.nombre_cliente || c.nombre || '',
+      servicio: c.servicio || 'Netflix',
+      perfil: c.perfil || 'Perfil 1',
+      pin: c.pin_perfil || c.pin || '',
+      monto: c.monto || 15,
+      fecha_finalizacion: nuevaFechaVencimiento
+    });
+    setPerfilRenovar(c);
+  };
+
+  const handleConfirmarRenovacion = (e) => {
+    e.preventDefault();
+    if (!formRenovar || !formRenovar.id) return;
+
+    setCargandoRenovacion(true);
+    axios.post(`${api}/clientes/renovar/${formRenovar.id}`, {
+      nombre_cliente: formRenovar.nombre_cliente,
+      servicio: formRenovar.servicio,
+      monto: formRenovar.monto,
+      fecha_finalizacion: formRenovar.fecha_finalizacion
+    })
+    .then(res => {
+      if (res.data && res.data.error) {
+        mostrarToast(`❌ Error: ${res.data.error}`, 'danger');
+        return;
+      }
+      mostrarToast(`🎉 Perfil de "${formRenovar.nombre_cliente}" renovado por S/ ${Number(formRenovar.monto || 0).toFixed(2)} hasta ${dayjs(formRenovar.fecha_finalizacion).format('DD/MM/YYYY')}!`, 'success');
+      setPerfilRenovar(null);
+      cargarDatos();
+    })
+    .catch(err => {
+      console.error("Error al renovar perfil:", err);
+      mostrarToast("❌ Error al procesar la renovación en el servidor.", 'danger');
+    })
+    .finally(() => {
+      setCargandoRenovacion(false);
+    });
+  };
+
+
   // STOCK HANDLERS
   const handleFechaStockChange = (e) => { const ne = e.target.value; setFormStock({ ...formStock, fecha_entrada: ne, fecha_vencimiento: dayjs(ne).add(30, 'day').format('YYYY-MM-DD') }); };
   const limpiarFormStock = () => { setFormStock({ correo: '', contrasena: '', servicio: 'Netflix', costo: '', fecha_entrada: dayjs().format('YYYY-MM-DD'), fecha_vencimiento: dayjs().add(30, 'day').format('YYYY-MM-DD') }); setEditandoStock(false); setStockEditarId(null); };
@@ -468,9 +538,17 @@ function VistaStreaming({ api }) {
                                                     <div className="small fw-bold text-danger">Vence: {fechaFin.format('DD/MM/YYYY')}</div>
                                                 </div>
                                             </div>
-                                            <div className="mt-2 mt-md-0">
+                                            <div className="mt-2 mt-md-0 d-flex align-items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleAbrirModalRenovar(c)}
+                                                    className="btn btn-success btn-sm rounded-pill fw-bold px-3 shadow-sm d-inline-flex align-items-center gap-1"
+                                                    title="Renovar este perfil (+30 días)"
+                                                >
+                                                    <i className="bi bi-arrow-repeat me-1"></i>Renovar
+                                                </button>
                                                 {celular ? (
-                                                    <a href={linkWsp} target="_blank" rel="noreferrer" className="btn btn-success btn-sm rounded-pill fw-bold px-3 shadow-sm">
+                                                    <a href={linkWsp} target="_blank" rel="noreferrer" className="btn btn-outline-success btn-sm rounded-pill fw-bold px-3 shadow-sm">
                                                         <i className="bi bi-whatsapp me-2"></i>Cobrar
                                                     </a>
                                                 ) : (
@@ -662,6 +740,15 @@ function VistaStreaming({ api }) {
                                          </td>
                                          <td className="text-center"><span className={`badge rounded-pill ${diasRestantes < 3 ? 'bg-danger' : 'bg-success'}`} style={{fontSize:'0.75rem'}}>{fechaFinStr ? dayjs(fechaFinStr).add(10,'hour').format('DD/MM') : '-'}</span></td>
                                          <td className="text-end pe-3">
+                                            <button 
+                                              type="button"
+                                              onClick={() => handleAbrirModalRenovar(c)} 
+                                              className="btn btn-sm text-white rounded-pill px-2 py-1 me-2 fw-bold shadow-sm d-inline-flex align-items-center gap-1 border-0"
+                                              style={{ fontSize: '0.75rem', backgroundColor: '#10B981' }}
+                                              title="Renovar este perfil (+30 días)"
+                                            >
+                                              <i className="bi bi-arrow-repeat"></i> Renovar
+                                            </button>
                                             <button onClick={() => handleEditarCliente(c)} className="btn btn-sm btn-link p-0 me-2 text-decoration-none" title="Editar">✏️</button>
                                             <button onClick={() => handleEliminar(c, 'cliente')} className="btn btn-sm btn-link p-0 text-decoration-none" title="Mover a Papelera">❌</button>
                                          </td>
@@ -895,6 +982,125 @@ function VistaStreaming({ api }) {
                     Cerrar
                   </button>
                 </div>
+
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 🔄 MODAL DE RENOVACIÓN DE PERFIL */}
+        {perfilRenovar && (
+          <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 1060 }}>
+            <div className="modal-dialog modal-dialog-centered">
+              <div className="modal-content border-0 shadow-lg" style={{ borderRadius: '16px', overflow: 'hidden' }}>
+                
+                {/* CABECERA MODAL */}
+                <div className="modal-header text-white" style={{ background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)' }}>
+                  <div className="d-flex align-items-center gap-2">
+                    <div className="p-2 bg-white bg-opacity-20 rounded-circle text-white d-flex align-items-center justify-content-center" style={{ width: '40px', height: '40px' }}>
+                      <i className="bi bi-arrow-repeat fs-4"></i>
+                    </div>
+                    <div>
+                      <h5 className="modal-title fw-bold mb-0 text-white">Renovar Perfil de Streaming</h5>
+                      <small className="text-white opacity-85">Extender vigencia y registrar pago en liquidez</small>
+                    </div>
+                  </div>
+                  <button type="button" className="btn-close btn-close-white" onClick={() => setPerfilRenovar(null)}></button>
+                </div>
+
+                <form onSubmit={handleConfirmarRenovacion}>
+                  <div className="modal-body p-4 bg-light">
+                    
+                    {/* PLATAFORMA Y PERFIL BADGES */}
+                    <div className="d-flex align-items-center justify-content-between p-3 bg-white rounded-3 shadow-sm mb-3 border">
+                      <div>
+                        <span className="badge text-white px-2 py-1 mb-1" style={{ backgroundColor: getBrandColor(formRenovar.servicio) }}>
+                          {formRenovar.servicio}
+                        </span>
+                        <div className="fw-bold text-dark">{formRenovar.perfil || 'Perfil'}</div>
+                      </div>
+                      {formRenovar.pin && (
+                        <div className="text-end">
+                          <span className="small text-muted d-block">PIN de Acceso</span>
+                          <span className="badge bg-secondary text-white">{formRenovar.pin}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* NOMBRE CLIENTE */}
+                    <div className="mb-3">
+                      <label className="form-label small fw-bold text-muted">Nombre del Cliente</label>
+                      <div className="input-group shadow-sm">
+                        <span className="input-group-text bg-white"><i className="bi bi-person text-muted"></i></span>
+                        <input 
+                          type="text" 
+                          className="form-control" 
+                          value={formRenovar.nombre_cliente} 
+                          onChange={e => setFormRenovar({...formRenovar, nombre_cliente: e.target.value})}
+                          required
+                          placeholder="Nombre del cliente"
+                        />
+                      </div>
+                    </div>
+
+                    {/* MONTO Y FECHA */}
+                    <div className="row g-3">
+                      <div className="col-6">
+                        <label className="form-label small fw-bold text-muted">Monto Renovación (S/)</label>
+                        <div className="input-group shadow-sm">
+                          <span className="input-group-text bg-white fw-bold text-success">S/</span>
+                          <input 
+                            type="number" 
+                            step="0.5" 
+                            min="0"
+                            onWheel={handleWheel}
+                            className="form-control fw-bold text-success" 
+                            value={formRenovar.monto} 
+                            onChange={e => setFormRenovar({...formRenovar, monto: e.target.value})}
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div className="col-6">
+                        <label className="form-label small fw-bold text-muted">Nueva Fecha Vencimiento</label>
+                        <input 
+                          type="date" 
+                          className="form-control shadow-sm fw-bold border-success" 
+                          value={formRenovar.fecha_finalizacion} 
+                          onChange={e => setFormRenovar({...formRenovar, fecha_finalizacion: e.target.value})}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-3 p-2 bg-success bg-opacity-10 border border-success border-opacity-25 rounded-3 text-success small d-flex align-items-center gap-2">
+                      <i className="bi bi-check-circle-fill fs-5"></i>
+                      <span>Se sumarán <strong>S/ {Number(formRenovar.monto || 0).toFixed(2)}</strong> a la Liquidez Total y Reportes de TiDB.</span>
+                    </div>
+
+                  </div>
+
+                  {/* PIE MODAL */}
+                  <div className="modal-footer bg-white border-top-0 d-flex justify-content-end gap-2">
+                    <button type="button" className="btn btn-light rounded-pill px-4 fw-bold" onClick={() => setPerfilRenovar(null)} disabled={cargandoRenovacion}>
+                      Cancelar
+                    </button>
+                    <button type="submit" className="btn btn-success rounded-pill px-4 fw-bold shadow-sm d-flex align-items-center gap-2" disabled={cargandoRenovacion}>
+                      {cargandoRenovacion ? (
+                        <>
+                          <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                          <span>Renovando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <i className="bi bi-arrow-repeat"></i>
+                          <span>Confirmar Renovación</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
 
               </div>
             </div>

@@ -419,6 +419,7 @@ app.post('/clientes', (req, res) => {
 // ==========================================
 app.post('/clientes/renovar/:id', (req, res) => {
     const clienteId = req.params.id;
+    const { nombre_cliente, servicio, monto, fecha_finalizacion } = req.body || {};
 
     db.getConnection((err, connection) => {
         if (err) return res.status(500).json({ error: "Error de conexión a la base de datos: " + err.message });
@@ -445,64 +446,79 @@ app.post('/clientes/renovar/:id', (req, res) => {
 
                 const cliente = rows[0];
                 
-                // Calculamos el precio de esta mensualidad
-                const precioMensual = Number(cliente.monto) || 0; 
-                if (precioMensual <= 0) {
-                    throw new Error("El cliente tiene un monto registrado de S/ 0. Configura un costo mensual válido antes de renovar.");
+                // Nombre final
+                const finalNombre = (nombre_cliente !== undefined && String(nombre_cliente).trim() !== '') 
+                    ? String(nombre_cliente).trim() 
+                    : (cliente.nombre_cliente || cliente.nombre || 'Cliente');
+
+                // Servicio/Plataforma final
+                const finalServicio = (servicio !== undefined && String(servicio).trim() !== '') 
+                    ? String(servicio).trim() 
+                    : (cliente.servicio || 'Streaming');
+                
+                // Calculamos el precio de esta mensualidad/renovación
+                let precioMensual = (monto !== undefined && monto !== '' && !isNaN(Number(monto))) 
+                    ? Number(monto) 
+                    : (Number(cliente.monto) || 0);
+
+                if (precioMensual < 0) {
+                    throw new Error("El monto de renovación no puede ser negativo.");
                 }
 
-                // 2. Calcular la nueva fecha de vencimiento (+30 días)
-                // Si la fecha de finalización actual está en el futuro, sumamos a partir de ella para no quitarle días contratados.
-                // Si ya venció o está vacía, sumamos a partir de hoy.
+                // 2. Calcular la nueva fecha de vencimiento
                 const hoy = new Date();
-                let fechaBase = new Date();
-                
-                if (cliente.fecha_finalizacion) {
-                    const fechaFinalizacion = new Date(cliente.fecha_finalizacion);
-                    if (fechaFinalizacion > hoy) {
-                        fechaBase = fechaFinalizacion;
+                let fechaFinStr = '';
+
+                if (fecha_finalizacion && String(fecha_finalizacion).trim() !== '') {
+                    fechaFinStr = String(fecha_finalizacion).trim();
+                } else {
+                    let fechaBase = new Date();
+                    if (cliente.fecha_finalizacion) {
+                        const fechaFinalizacion = new Date(cliente.fecha_finalizacion);
+                        if (fechaFinalizacion > hoy) {
+                            fechaBase = fechaFinalizacion;
+                        }
                     }
+                    const nuevaFechaFin = new Date(fechaBase);
+                    nuevaFechaFin.setDate(nuevaFechaFin.getDate() + 30);
+                    fechaFinStr = nuevaFechaFin.toISOString().split('T')[0];
                 }
                 
-                const nuevaFechaFin = new Date(fechaBase);
-                nuevaFechaFin.setDate(nuevaFechaFin.getDate() + 30);
-                
-                const fechaFinStr = nuevaFechaFin.toISOString().split('T')[0];
                 const fechaInicioStr = hoy.toISOString().split('T')[0];
 
-                // 3. Actualizar la suscripción extendiendo la fecha y acumulando el monto pagado.
-                // Esto actualiza dinámicamente "Ventas Totales" y "Ganancia Real" en la UI de VistaStreaming ya que suma todos los montos de la tabla.
+                // 3. Actualizar la suscripción extendiendo la fecha, ajustando nombre_cliente y acumulando el monto pagado.
                 const nuevoMontoAcumulado = Number(cliente.monto || 0) + precioMensual;
                 
                 await query(
-                    "UPDATE suscripciones SET fecha_inicio = ?, fecha_finalizacion = ?, monto = ?, estado = 'activo' WHERE id = ?",
-                    [fechaInicioStr, fechaFinStr, nuevoMontoAcumulado, clienteId]
+                    "UPDATE suscripciones SET nombre_cliente = ?, fecha_inicio = ?, fecha_finalizacion = ?, monto = ?, estado = 'activo' WHERE id = ?",
+                    [finalNombre, fechaInicioStr, fechaFinStr, nuevoMontoAcumulado, clienteId]
                 );
 
-                // Insertar transacción de renovación
-                if (precioMensual > 0) {
-                    await query(
-                        "INSERT INTO transactions (type, amount, platform, client_name, profile_id, description, date) VALUES ('RENOVACION', ?, ?, ?, ?, 'Renovación de perfil (+30 días)', NOW())",
-                        [precioMensual, cliente.servicio || 'Streaming', cliente.nombre_cliente || cliente.nombre || 'Cliente', clienteId]
-                    );
-                    console.log(`💸 Transacción RENOVACION registrada en transactions para ${cliente.nombre_cliente}`);
-                }
+                // Insertar transacción de renovación en 'transactions'
+                await query(
+                    "INSERT INTO transactions (type, amount, platform, client_name, profile_id, description, date) VALUES ('RENOVACION', ?, ?, ?, ?, 'Renovación mensual de perfil', NOW())",
+                    [precioMensual, finalServicio, finalNombre, clienteId]
+                );
+                console.log(`💸 Transacción RENOVACION registrada en transactions para ${finalNombre} por S/ ${precioMensual}`);
 
-                // 4. Insertar registro de venta en 'registro_ventas' para llevar un historial limpio y transparente
+                // 4. Insertar registro de venta en 'registro_ventas' para llevar un historial limpio
                 const insertVentaSql = `
                     INSERT INTO registro_ventas (producto_id, nombre_producto, cantidad, precio_venta, ganancia, fecha_venta)
                     VALUES (?, ?, 1, ?, ?, ?)
                 `;
-                const nombreProductoVenta = `Renovación: ${cliente.servicio} - ${cliente.nombre_cliente}`;
-                
-                // La ganancia es el precio total de la venta de esta renovación
+                const nombreProductoVenta = `Renovación: ${finalServicio} - ${finalNombre}`;
                 await query(insertVentaSql, [clienteId, nombreProductoVenta, precioMensual, precioMensual, fechaInicioStr]);
 
                 await query("COMMIT");
                 connection.release();
                 
-                console.log(`✅ Suscripción de ${cliente.nombre_cliente} renovada +30 días. Nuevo monto total acumulado: S/ ${nuevoMontoAcumulado}`);
-                return res.json({ status: "Success", message: "Suscripción renovada por 30 días con éxito" });
+                console.log(`✅ Suscripción de ${finalNombre} renovada hasta ${fechaFinStr}. Nuevo monto total acumulado: S/ ${nuevoMontoAcumulado}`);
+                return res.json({ 
+                    status: "Success", 
+                    message: "Suscripción renovada con éxito",
+                    nuevaFecha: fechaFinStr,
+                    monto: precioMensual 
+                });
 
             } catch (error) {
                 console.error("❌ Error en la transacción de renovación:", error.message);
