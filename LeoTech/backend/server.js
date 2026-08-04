@@ -568,19 +568,23 @@ const handleRenovarApi = (req, res) => {
                 return res.status(500).json({ success: false, message: 'Error en inicio de transacción', error: txErr.message });
             }
             try {
-                // a) Extiende la vigencia del perfil en 30 días y actualiza el cliente
-                await query(
-                    "UPDATE suscripciones SET fecha_finalizacion = DATE_ADD(NOW(), INTERVAL 30 DAY), nombre_cliente = ? WHERE id = ?",
-                    [cliente_nombre, id]
-                );
-
+                // a) Extiende la vigencia del perfil en 30 días y actualiza el cliente en TiDB
                 try {
                     await query(
                         "UPDATE profiles SET fecha_vencimiento = DATE_ADD(NOW(), INTERVAL 30 DAY), cliente_nombre = ? WHERE id = ?",
                         [cliente_nombre, id]
                     );
                 } catch (e) {
-                    // Ignorar si la tabla profiles no existe
+                    console.warn('[AUDIT EXPRES /api/renovar] Advertencia al actualizar tabla profiles:', e.message);
+                }
+
+                try {
+                    await query(
+                        "UPDATE suscripciones SET fecha_finalizacion = DATE_ADD(NOW(), INTERVAL 30 DAY), nombre_cliente = ? WHERE id = ?",
+                        [cliente_nombre, id]
+                    );
+                } catch (e) {
+                    console.warn('[AUDIT EXPRES /api/renovar] Advertencia al actualizar tabla suscripciones:', e.message);
                 }
 
                 // b) Registra la transacción financiera para liquidez y reportes

@@ -449,27 +449,42 @@ function VistaStreaming({ api }) {
       plataforma: formRenovar.servicio
     };
 
-    console.log('[AUDIT CLIENTE] Enviando payload de renovación a /api/renovar:', payload);
+    const primaryUrl = api
+      ? (api.endsWith('/') ? `${api}api/renovar` : `${api}/api/renovar`)
+      : '/api/renovar';
+    const fallbackUrl = primaryUrl === '/api/renovar' ? null : '/api/renovar';
+
+    console.log('[AUDIT CLIENTE] URL de destino para renovación:', primaryUrl);
+    console.log('[AUDIT CLIENTE] Payload de renovación enviado:', payload);
     setCargandoRenovacion(true);
 
-    axios.post('/api/renovar', payload)
-      .then(res => {
-        console.log('[AUDIT CLIENTE] Respuesta recibida de /api/renovar:', res.data);
-        if (res.status === 200 && res.data && res.data.success !== false) {
-          mostrarToast(`🎉 Perfil de "${formRenovar.nombre_cliente}" renovado por S/ ${Number(formRenovar.monto || 0).toFixed(2)} hasta ${dayjs(formRenovar.fecha_finalizacion).format('DD/MM/YYYY')}!`, 'success');
-          setPerfilRenovar(null);
-          cargarDatos();
-        } else {
-          mostrarToast(`❌ Error: ${res.data?.message || res.data?.error || 'Error al renovar perfil'}`, 'danger');
-        }
-      })
-      .catch(err => {
-        console.error('[AUDIT CLIENTE] Error al renovar perfil en /api/renovar:', err);
-        mostrarToast("❌ Error al procesar la renovación en el servidor.", 'danger');
-      })
-      .finally(() => {
-        setCargandoRenovacion(false);
-      });
+    const makeRequest = (url, isFallback = false) => {
+      axios.post(url, payload)
+        .then(res => {
+          console.log(`[AUDIT CLIENTE] Respuesta recibida de ${url}:`, res.status, res.data);
+          if (res.status === 200 && res.data && res.data.success !== false) {
+            mostrarToast(`🎉 Perfil de "${formRenovar.nombre_cliente}" renovado por S/ ${Number(formRenovar.monto || 0).toFixed(2)} hasta ${dayjs(formRenovar.fecha_finalizacion).format('DD/MM/YYYY')}!`, 'success');
+            setPerfilRenovar(null);
+            cargarDatos();
+          } else {
+            mostrarToast(`❌ Error: ${res.data?.message || res.data?.error || 'Error al renovar perfil'}`, 'danger');
+          }
+        })
+        .catch(err => {
+          console.error(`[AUDIT CLIENTE] Error al renovar perfil en ${url}:`, err);
+          if (err.response && err.response.status === 404 && fallbackUrl && !isFallback) {
+            console.warn(`[AUDIT CLIENTE] Endpoint ${primaryUrl} retornó 404. Reintentando en fallback ${fallbackUrl}...`);
+            makeRequest(fallbackUrl, true);
+            return;
+          }
+          mostrarToast(`❌ Error al procesar la renovación en el servidor (${err.response?.status || 'Error de red'}).`, 'danger');
+        })
+        .finally(() => {
+          setCargandoRenovacion(false);
+        });
+    };
+
+    makeRequest(primaryUrl);
   };
 
 
