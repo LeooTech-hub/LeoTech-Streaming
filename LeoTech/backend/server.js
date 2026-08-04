@@ -46,76 +46,110 @@ db.on('error', (err) => {
 // ==========================================
 //  SISTEMA DE AUTO-REPARACIÓN DE BASE DE DATOS
 // ==========================================
-function inicializarBaseDeDatos() {
-    console.log("🔧 Verificando estado de la Base de Datos...");
+async function inicializarBaseDeDatos() {
+  console.log("🔧 Verificando estado de la Base de Datos...");
 
-    // 1. Tabla Ventas
-    const sqlVentas = `CREATE TABLE IF NOT EXISTS registro_ventas (id INT AUTO_INCREMENT PRIMARY KEY, producto_id INT, nombre_producto VARCHAR(255), cantidad INT NOT NULL, precio_venta DECIMAL(10, 2), ganancia DECIMAL(10, 2), fecha_venta DATE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`;
-    db.query(sqlVentas, (err) => { if (err) console.error("❌ Error ventas:", err.message); });
+  // 1. Tabla Ventas
+  try {
+    const sqlVentas = `CREATE TABLE IF NOT EXISTS registro_ventas (
+      id INT AUTO_INCREMENT PRIMARY KEY, 
+      producto_id INT, 
+      nombre_producto VARCHAR(255), 
+      cantidad INT NOT NULL, 
+      precio_venta DECIMAL(10, 2), 
+      ganancia DECIMAL(10, 2), 
+      fecha_venta DATE, 
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`;
+    await db.query(sqlVentas);
+  } catch (err) {
+    console.error("❌ Error ventas:", err.message);
+  }
 
-    // 2. Columna Costo
+  // 2. Columna Costo
+  try {
     const sqlCosto = "ALTER TABLE productos ADD COLUMN costo DECIMAL(10, 2) DEFAULT 0";
-    db.query(sqlCosto, (err) => { if (err && err.code !== 'ER_DUP_FIELDNAME') console.error("⚠️ Nota costo:", err.message); });
+    await db.query(sqlCosto);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME' && err.errno !== 1060) console.error("⚠️ Nota costo:", err.message);
+  }
 
-    // 3. Columna Visible
+  // 3. Columna Visible
+  try {
     const sqlVisible = "ALTER TABLE productos ADD COLUMN visible TINYINT DEFAULT 1";
-    db.query(sqlVisible, (err) => { if (err && err.code !== 'ER_DUP_FIELDNAME') console.error("⚠️ Nota visible:", err.message); });
+    await db.query(sqlVisible);
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME' && err.errno !== 1060) console.error("⚠️ Nota visible:", err.message);
+  }
 
-    // 4. Columna Rol
+  // 4. Columna Rol
+  try {
     const sqlRol = "ALTER TABLE usuarios ADD COLUMN rol VARCHAR(20) DEFAULT 'cliente'";
-    db.query(sqlRol, (err) => {
-        if (err && err.code !== 'ER_DUP_FIELDNAME') console.error("⚠️ Nota rol:", err.message);
-        else console.log("✅ Columna 'rol' verificada (Sistema de Jerarquía listo).");
-    });
-    // 5. Tabla de Gastos
+    await db.query(sqlRol);
+    console.log("✅ Columna 'rol' verificada (Sistema de Jerarquía listo).");
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME' && err.errno !== 1060) console.error("⚠️ Nota rol:", err.message);
+    else console.log("✅ Columna 'rol' verificada (Sistema de Jerarquía listo).");
+  }
+
+  // 5. Tabla de Gastos
+  try {
     const sqlGastos = `CREATE TABLE IF NOT EXISTS gastos (
-        id INT AUTO_INCREMENT PRIMARY KEY, 
-        descripcion VARCHAR(255), 
-        monto DECIMAL(10, 2), 
-        fecha DATE, 
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      id INT AUTO_INCREMENT PRIMARY KEY, 
+      descripcion VARCHAR(255), 
+      monto DECIMAL(10, 2), 
+      fecha DATE, 
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`;
-    db.query(sqlGastos, (err) => { 
-        if (err) console.error("❌ Error tabla gastos:", err.message); 
-        else console.log("✅ Tabla 'gastos' verificada.");
-    });
+    await db.query(sqlGastos);
+    console.log("✅ Tabla 'gastos' verificada.");
+  } catch (err) {
+    console.error("❌ Error tabla gastos:", err.message);
+  }
 
-    // 6. Columnas de Soft Delete (Perfiles Eliminados)
+  // 6. Columnas de Soft Delete (Perfiles Eliminados)
+  try {
     const sqlEliminado = "ALTER TABLE suscripciones ADD COLUMN eliminado TINYINT DEFAULT 0";
-    db.query(sqlEliminado, (err) => { 
-        if (err) {
-            if (err.code !== 'ER_DUP_FIELDNAME' && err.errno !== 1060) console.error("⚠️ Error columna eliminado:", err.message); 
-            else console.log("✅ Columna 'eliminado' verificada en la tabla suscripciones.");
-        } else {
-            console.log("✅ Columna 'eliminado' creada exitosamente.");
-        }
-    });
+    await db.query(sqlEliminado);
+    console.log("✅ Columna 'eliminado' creada exitosamente.");
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME' && err.errno !== 1060) {
+      console.error("⚠️ Error columna eliminado:", err.message);
+    } else {
+      console.log("✅ Columna 'eliminado' verificada en la tabla suscripciones.");
+    }
+  }
 
+  try {
     const sqlFechaEliminado = "ALTER TABLE suscripciones ADD COLUMN fecha_eliminacion DATETIME DEFAULT NULL";
-    db.query(sqlFechaEliminado, (err) => { 
-        if (err) {
-            if (err.code !== 'ER_DUP_FIELDNAME' && err.errno !== 1060) console.error("⚠️ Error columna fecha_eliminacion:", err.message); 
-            else console.log("✅ Columna 'fecha_eliminacion' verificada en la tabla suscripciones.");
-        } else {
-            console.log("✅ Columna 'fecha_eliminacion' creada exitosamente.");
-        }
-    });
+    await db.query(sqlFechaEliminado);
+    console.log("✅ Columna 'fecha_eliminacion' creada exitosamente.");
+  } catch (err) {
+    if (err.code !== 'ER_DUP_FIELDNAME' && err.errno !== 1060) {
+      console.error("⚠️ Error columna fecha_eliminacion:", err.message);
+    } else {
+      console.log("✅ Columna 'fecha_eliminacion' verificada en la tabla suscripciones.");
+    }
+  }
 
-    // 7. Tabla Transactions (Reportes Financieros)
+  // 7. Tabla Transactions (Reportes Financieros)
+  try {
     const sqlTransactions = `CREATE TABLE IF NOT EXISTS transactions (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        type VARCHAR(50) DEFAULT 'VENTA',
-        amount DOUBLE DEFAULT 0,
-        description VARCHAR(255) DEFAULT '',
-        date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        platform VARCHAR(100) DEFAULT '',
-        client_name VARCHAR(255) DEFAULT ''
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      type VARCHAR(50) DEFAULT 'VENTA',
+      amount DOUBLE DEFAULT 0,
+      description VARCHAR(255) DEFAULT '',
+      date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      platform VARCHAR(100) DEFAULT '',
+      client_name VARCHAR(255) DEFAULT ''
     )`;
-    db.query(sqlTransactions, (err) => { 
-        if (err) console.error("❌ Error creando tabla transactions:", err.message); 
-        else console.log("✅ Tabla 'transactions' verificada en TiDB Cloud.");
-    });
+    await db.query(sqlTransactions);
+    console.log("✅ Tabla 'transactions' verificada en TiDB Cloud.");
+  } catch (err) {
+    console.error("❌ Error creando tabla transactions:", err.message);
+  }
 }
+
 inicializarBaseDeDatos();
 
 // ==========================================
