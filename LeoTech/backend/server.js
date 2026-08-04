@@ -897,7 +897,7 @@ app.delete('/gastos/:id', (req, res) => {
 // Obtener historial de transacciones para Reportes y Liquidez
 app.get('/reportes/transacciones', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT id, type, amount, description, date, platform, client_name FROM transactions ORDER BY date DESC');
+    const [rows] = await db.query('SELECT id, type, amount, description, date, platform, client_name FROM transactions ORDER BY date DESC');
     res.json(rows);
   } catch (error) {
     console.error('Error al obtener transacciones:', error);
