@@ -109,8 +109,7 @@ function inicializarBaseDeDatos() {
         description VARCHAR(255) DEFAULT '',
         date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         platform VARCHAR(100) DEFAULT '',
-        client_name VARCHAR(255) DEFAULT '',
-        profile_id INT DEFAULT NULL
+        client_name VARCHAR(255) DEFAULT ''
     )`;
     db.query(sqlTransactions, (err) => { 
         if (err) console.error("❌ Error creando tabla transactions:", err.message); 
@@ -292,8 +291,8 @@ app.post('/clientes', (req, res) => {
             const montoVal = Number(monto) || 0;
             if (montoVal > 0) {
                 db.query(
-                    "INSERT INTO transactions (type, amount, platform, client_name, profile_id, description, date) VALUES ('VENTA', ?, ?, ?, ?, 'Venta de perfil', NOW())",
-                    [montoVal, servicio || 'Streaming', nombre || 'Cliente', profileId],
+                    "INSERT INTO transactions (type, amount, platform, client_name, description, date) VALUES ('VENTA', ?, ?, ?, 'Venta de perfil', NOW())",
+                    [montoVal, servicio || 'Streaming', nombre || 'Cliente'],
                     (errTx) => {
                         if (errTx) console.error("⚠️ Error registrando en transactions:", errTx.message);
                         else console.log(`💸 Transacción VENTA registrada en transactions para ${nombre}`);
@@ -398,8 +397,8 @@ app.post('/clientes', (req, res) => {
                 const montoVal = Number(monto) || 0;
                 if (montoVal > 0) {
                     await query(
-                        "INSERT INTO transactions (type, amount, platform, client_name, profile_id, description, date) VALUES ('VENTA', ?, ?, ?, ?, 'Venta de perfil', NOW())",
-                        [montoVal, servicio || 'Streaming', nombre || 'Cliente', profileId]
+                        "INSERT INTO transactions (type, amount, platform, client_name, description, date) VALUES ('VENTA', ?, ?, ?, 'Venta de perfil', NOW())",
+                        [montoVal, servicio || 'Streaming', nombre || 'Cliente']
                     );
                     console.log(`💸 Transacción VENTA en stock automático registrada para ${nombre}`);
                 }
@@ -504,8 +503,8 @@ app.post('/clientes/renovar/:id', (req, res) => {
 
                 // Insertar transacción de renovación en 'transactions'
                 await query(
-                    "INSERT INTO transactions (type, amount, platform, client_name, profile_id, description, date) VALUES ('RENOVACION', ?, ?, ?, ?, 'Renovación mensual de perfil', NOW())",
-                    [precioMensual, finalServicio, finalNombre, clienteId]
+                    "INSERT INTO transactions (type, amount, platform, client_name, description, date) VALUES ('RENOVACION', ?, ?, ?, 'Renovación mensual de perfil', NOW())",
+                    [precioMensual, finalServicio, finalNombre]
                 );
                 console.log(`💸 Transacción RENOVACION registrada en transactions para ${finalNombre} por S/ ${precioMensual}`);
 
@@ -540,79 +539,65 @@ app.post('/clientes/renovar/:id', (req, res) => {
 
 // Endpoint Serverless /api/renovar para POST y PUT en Express backend
 const handleRenovarApi = (req, res) => {
-    const body = req.body || {};
-    const id = body.id || req.params.id || req.query.id;
-    const monto = body.monto !== undefined ? Number(body.monto) : 0;
-    const cliente_nombre = (body.cliente_nombre || body.nombre_cliente || body.nombre || '').trim();
-    const plataforma = (body.plataforma || body.servicio || 'Streaming').trim();
+    try {
+        const { id, monto, cliente_nombre, plataforma } = req.body || {};
 
-    console.log('[AUDIT EXPRES /api/renovar] Payload recibido:', { id, monto, cliente_nombre, plataforma });
+        if (!id) {
+            return res.status(400).json({ success: false, message: 'Falta el ID del perfil para procesar la renovación.' });
+        }
 
-    if (!id) {
-        return res.status(400).json({ success: false, message: 'Falta el ID del perfil para procesar la renovación.' });
-    }
+        db.getConnection((err, connection) => {
+            if (err) return res.status(500).json({ success: false, message: 'Error de conexión a base de datos', error: err.message });
 
-    db.getConnection((err, connection) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error de conexión a base de datos', error: err.message });
-
-        const query = (sql, values) => new Promise((resolve, reject) => {
-            connection.query(sql, values, (err, results) => {
-                if (err) reject(err);
-                else resolve(results);
+            const query = (sql, values) => new Promise((resolve, reject) => {
+                connection.query(sql, values, (err, results) => {
+                    if (err) reject(err);
+                    else resolve(results);
+                });
             });
-        });
 
-        connection.beginTransaction(async (txErr) => {
-            if (txErr) {
-                connection.release();
-                return res.status(500).json({ success: false, message: 'Error en inicio de transacción', error: txErr.message });
-            }
-            try {
-                // a) Extiende la vigencia del perfil en 30 días y actualiza el cliente en TiDB
+            connection.beginTransaction(async (txErr) => {
+                if (txErr) {
+                    connection.release();
+                    return res.status(500).json({ success: false, message: 'Error en inicio de transacción', error: txErr.message });
+                }
                 try {
+                    // a) UPDATE profiles SET fecha_vencimiento = DATE_ADD(NOW(), INTERVAL 30 DAY), cliente_nombre = ? WHERE id = ?
                     await query(
                         "UPDATE profiles SET fecha_vencimiento = DATE_ADD(NOW(), INTERVAL 30 DAY), cliente_nombre = ? WHERE id = ?",
                         [cliente_nombre, id]
                     );
-                } catch (e) {
-                    console.warn('[AUDIT EXPRES /api/renovar] Advertencia al actualizar tabla profiles:', e.message);
-                }
 
-                try {
+                    // b) INSERT INTO transactions (type, amount, platform, client_name, description, date) VALUES ('RENOVACION', ?, ?, ?, 'Renovación de perfil', NOW())
                     await query(
-                        "UPDATE suscripciones SET fecha_finalizacion = DATE_ADD(NOW(), INTERVAL 30 DAY), nombre_cliente = ? WHERE id = ?",
-                        [cliente_nombre, id]
+                        "INSERT INTO transactions (type, amount, platform, client_name, description, date) VALUES ('RENOVACION', ?, ?, ?, 'Renovación de perfil', NOW())",
+                        [monto, plataforma, cliente_nombre]
                     );
-                } catch (e) {
-                    console.warn('[AUDIT EXPRES /api/renovar] Advertencia al actualizar tabla suscripciones:', e.message);
+
+                    await query("COMMIT");
+                    connection.release();
+                    console.log(`[AUDIT EXPRES /api/renovar] Perfil ID ${id} renovado exitosamente para ${cliente_nombre}.`);
+
+                    return res.status(200).json({
+                        success: true,
+                        message: 'Perfil renovado exitosamente'
+                    });
+                } catch (error) {
+                    await query("ROLLBACK");
+                    connection.release();
+                    console.error('[AUDIT EXPRES /api/renovar] Error en la renovación:', error.message);
+                    return res.status(500).json({
+                        success: false,
+                        message: 'Error interno del servidor al procesar la renovación',
+                        error: error.message
+                    });
                 }
-
-                // b) Registra la transacción financiera para liquidez y reportes
-                await query(
-                    "INSERT INTO transactions (type, amount, platform, client_name, profile_id, description, date) VALUES ('RENOVACION', ?, ?, ?, ?, 'Renovación de perfil', NOW())",
-                    [monto, plataforma, cliente_nombre, id]
-                );
-
-                await query("COMMIT");
-                connection.release();
-                console.log(`[AUDIT EXPRES /api/renovar] Perfil ID ${id} renovado exitosamente para ${cliente_nombre}.`);
-
-                return res.status(200).json({
-                    success: true,
-                    message: 'Perfil renovado exitosamente'
-                });
-            } catch (error) {
-                await query("ROLLBACK");
-                connection.release();
-                console.error('[AUDIT EXPRES /api/renovar] Error en la renovación:', error.message);
-                return res.status(500).json({
-                    success: false,
-                    message: 'Error interno del servidor al procesar la renovación',
-                    error: error.message
-                });
-            }
+            });
         });
-    });
+    } catch (error) {
+        console.error('[AUDIT EXPRES /api/renovar] Error general:', error.message);
+        return res.status(500).json({ success: false, message: 'Error interno del servidor al procesar la renovación', error: error.message });
+    }
 };
 
 app.post('/api/renovar', handleRenovarApi);
@@ -910,16 +895,20 @@ app.delete('/gastos/:id', (req, res) => {
 
 // Endpoint para listar transacciones registradas
 // Obtener historial de transacciones para Reportes y Liquidez
-app.get('/reportes/transacciones', async (req, res) => {
-  try {
-    const [rows] = await pool.query(
-      `SELECT * FROM transactions ORDER BY date DESC`
-    );
-    res.json(rows);
-  } catch (error) {
-    console.error('Error al obtener transacciones:', error);
-    res.status(500).json({ error: error.message });
-  }
+app.get('/reportes/transacciones', (req, res) => {
+    try {
+        const sql = 'SELECT id, type, amount, description, date, platform, client_name FROM transactions ORDER BY date DESC';
+        db.query(sql, (err, rows) => {
+            if (err) {
+                console.error('Error al obtener transacciones:', err);
+                return res.status(500).json({ error: err.message });
+            }
+            return res.status(200).json(rows);
+        });
+    } catch (error) {
+        console.error('Error al obtener transacciones:', error);
+        return res.status(500).json({ error: error.message });
+    }
 });
 
 // Endpoint para obtener resumen financiero y desgloses
