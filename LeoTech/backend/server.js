@@ -895,20 +895,14 @@ app.delete('/gastos/:id', (req, res) => {
 
 // Endpoint para listar transacciones registradas
 // Obtener historial de transacciones para Reportes y Liquidez
-app.get('/reportes/transacciones', (req, res) => {
-    try {
-        const sql = 'SELECT id, type, amount, description, date, platform, client_name FROM transactions ORDER BY date DESC';
-        db.query(sql, (err, rows) => {
-            if (err) {
-                console.error('Error al obtener transacciones:', err);
-                return res.status(500).json({ error: err.message });
-            }
-            return res.status(200).json(rows);
-        });
-    } catch (error) {
-        console.error('Error al obtener transacciones:', error);
-        return res.status(500).json({ error: error.message });
-    }
+app.get('/reportes/transacciones', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT id, type, amount, description, date, platform, client_name FROM transactions ORDER BY date DESC');
+    res.json(rows);
+  } catch (error) {
+    console.error('Error al obtener transacciones:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Endpoint para obtener resumen financiero y desgloses
