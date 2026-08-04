@@ -89,15 +89,15 @@ function VistaStreaming({ api }) {
       setDataClientes([]);
     });
 
-    axios.get(`${api}/clientes/eliminados?t=${ts}`, { headers }).then(res => {
-      const list = Array.isArray(res.data) ? res.data : (Array.isArray(res.data?.data) ? res.data.data : []);
-      const normalized = normalizeEliminado(list);
-      console.log(`[VistaStreaming API Audit] Elementos de la papelera recibidos desde la API: ${normalized.length}`, normalized);
-      setDataEliminados(normalized);
-    }).catch(err => {
-      console.error("Error al cargar eliminados:", err);
-      setDataEliminados([]);
-    });
+    // axios.get(`${api}/clientes/eliminados?t=${ts}`, { headers }).then(res => {
+    //   const list = Array.isArray(res.data) ? res.data : (Array.isArray(res.data?.data) ? res.data.data : []);
+    //   const normalized = normalizeEliminado(list);
+    //   console.log(`[VistaStreaming API Audit] Elementos de la papelera recibidos desde la API: ${normalized.length}`, normalized);
+    //   setDataEliminados(normalized);
+    // }).catch(err => {
+    //   console.error("Error al cargar eliminados:", err);
+    //   setDataEliminados([]);
+    // });
 
     axios.get(`${api}/inventario?t=${ts}`, { headers }).then(res => {
       const list = Array.isArray(res.data) ? res.data : (Array.isArray(res.data?.data) ? res.data.data : []);
