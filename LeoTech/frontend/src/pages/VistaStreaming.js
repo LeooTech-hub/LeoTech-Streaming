@@ -442,30 +442,36 @@ function VistaStreaming({ api }) {
     e.preventDefault();
     if (!formRenovar || !formRenovar.id) return;
 
+    const payload = {
+      id: formRenovar.id,
+      monto: Number(formRenovar.monto || 0),
+      cliente_nombre: formRenovar.nombre_cliente,
+      plataforma: formRenovar.servicio
+    };
+
+    console.log('[AUDIT CLIENTE] Enviando payload de renovación a /api/renovar:', payload);
     setCargandoRenovacion(true);
-    axios.post(`${api}/clientes/renovar/${formRenovar.id}`, {
-      nombre_cliente: formRenovar.nombre_cliente,
-      servicio: formRenovar.servicio,
-      monto: formRenovar.monto,
-      fecha_finalizacion: formRenovar.fecha_finalizacion
-    })
-    .then(res => {
-      if (res.data && res.data.error) {
-        mostrarToast(`❌ Error: ${res.data.error}`, 'danger');
-        return;
-      }
-      mostrarToast(`🎉 Perfil de "${formRenovar.nombre_cliente}" renovado por S/ ${Number(formRenovar.monto || 0).toFixed(2)} hasta ${dayjs(formRenovar.fecha_finalizacion).format('DD/MM/YYYY')}!`, 'success');
-      setPerfilRenovar(null);
-      cargarDatos();
-    })
-    .catch(err => {
-      console.error("Error al renovar perfil:", err);
-      mostrarToast("❌ Error al procesar la renovación en el servidor.", 'danger');
-    })
-    .finally(() => {
-      setCargandoRenovacion(false);
-    });
+
+    axios.post('/api/renovar', payload)
+      .then(res => {
+        console.log('[AUDIT CLIENTE] Respuesta recibida de /api/renovar:', res.data);
+        if (res.status === 200 && res.data && res.data.success !== false) {
+          mostrarToast(`🎉 Perfil de "${formRenovar.nombre_cliente}" renovado por S/ ${Number(formRenovar.monto || 0).toFixed(2)} hasta ${dayjs(formRenovar.fecha_finalizacion).format('DD/MM/YYYY')}!`, 'success');
+          setPerfilRenovar(null);
+          cargarDatos();
+        } else {
+          mostrarToast(`❌ Error: ${res.data?.message || res.data?.error || 'Error al renovar perfil'}`, 'danger');
+        }
+      })
+      .catch(err => {
+        console.error('[AUDIT CLIENTE] Error al renovar perfil en /api/renovar:', err);
+        mostrarToast("❌ Error al procesar la renovación en el servidor.", 'danger');
+      })
+      .finally(() => {
+        setCargandoRenovacion(false);
+      });
   };
+
 
 
   // STOCK HANDLERS

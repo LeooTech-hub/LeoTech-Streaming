@@ -538,6 +538,82 @@ app.post('/clientes/renovar/:id', (req, res) => {
     });
 });
 
+// Endpoint Serverless /api/renovar para POST y PUT en Express backend
+const handleRenovarApi = (req, res) => {
+    const body = req.body || {};
+    const id = body.id || req.params.id || req.query.id;
+    const monto = body.monto !== undefined ? Number(body.monto) : 0;
+    const cliente_nombre = (body.cliente_nombre || body.nombre_cliente || body.nombre || '').trim();
+    const plataforma = (body.plataforma || body.servicio || 'Streaming').trim();
+
+    console.log('[AUDIT EXPRES /api/renovar] Payload recibido:', { id, monto, cliente_nombre, plataforma });
+
+    if (!id) {
+        return res.status(400).json({ success: false, message: 'Falta el ID del perfil para procesar la renovación.' });
+    }
+
+    db.getConnection((err, connection) => {
+        if (err) return res.status(500).json({ success: false, message: 'Error de conexión a base de datos', error: err.message });
+
+        const query = (sql, values) => new Promise((resolve, reject) => {
+            connection.query(sql, values, (err, results) => {
+                if (err) reject(err);
+                else resolve(results);
+            });
+        });
+
+        connection.beginTransaction(async (txErr) => {
+            if (txErr) {
+                connection.release();
+                return res.status(500).json({ success: false, message: 'Error en inicio de transacción', error: txErr.message });
+            }
+            try {
+                // a) Extiende la vigencia del perfil en 30 días y actualiza el cliente
+                await query(
+                    "UPDATE suscripciones SET fecha_finalizacion = DATE_ADD(NOW(), INTERVAL 30 DAY), nombre_cliente = ? WHERE id = ?",
+                    [cliente_nombre, id]
+                );
+
+                try {
+                    await query(
+                        "UPDATE profiles SET fecha_vencimiento = DATE_ADD(NOW(), INTERVAL 30 DAY), cliente_nombre = ? WHERE id = ?",
+                        [cliente_nombre, id]
+                    );
+                } catch (e) {
+                    // Ignorar si la tabla profiles no existe
+                }
+
+                // b) Registra la transacción financiera para liquidez y reportes
+                await query(
+                    "INSERT INTO transactions (type, amount, platform, client_name, profile_id, description, date) VALUES ('RENOVACION', ?, ?, ?, ?, 'Renovación de perfil', NOW())",
+                    [monto, plataforma, cliente_nombre, id]
+                );
+
+                await query("COMMIT");
+                connection.release();
+                console.log(`[AUDIT EXPRES /api/renovar] Perfil ID ${id} renovado exitosamente para ${cliente_nombre}.`);
+
+                return res.status(200).json({
+                    success: true,
+                    message: 'Perfil renovado exitosamente'
+                });
+            } catch (error) {
+                await query("ROLLBACK");
+                connection.release();
+                console.error('[AUDIT EXPRES /api/renovar] Error en la renovación:', error.message);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Error interno del servidor al procesar la renovación',
+                    error: error.message
+                });
+            }
+        });
+    });
+};
+
+app.post('/api/renovar', handleRenovarApi);
+app.put('/api/renovar', handleRenovarApi);
+
 // ==========================================
 //  📅 REQUERIMIENTO 2: AUTOMATIZACIÓN DE NOTIFICACIONES
 // ==========================================
