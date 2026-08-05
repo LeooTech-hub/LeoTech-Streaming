@@ -904,62 +904,126 @@ app.delete('/inventario/:id', async (req, res) => {
 // ==========================================
 const handleRenovarStockApi = async (req, res) => {
     try {
-        const { id, costo, servicio, correo } = req.body || {};
+        const { 
+            id, 
+            monto, 
+            nuevoMonto,
+            costo, 
+            fechaInicio, 
+            fecha_inicio, 
+            nuevaFechaVence, 
+            fecha_vencimiento, 
+            vence, 
+            actualizarCostoBase, 
+            actualizar_costo_base,
+            servicio, 
+            correo 
+        } = req.body || {};
 
-        if (!id) {
-            return res.status(400).json({ success: false, message: 'Falta el ID de la cuenta de stock para renovar.' });
+        const finalId = id;
+        const finalNuevaFechaVence = nuevaFechaVence || fecha_vencimiento || vence;
+        const rawMonto = (nuevoMonto !== undefined && nuevoMonto !== '')
+            ? nuevoMonto
+            : ((monto !== undefined && monto !== '') ? monto : costo);
+
+        if (!finalId || !finalNuevaFechaVence) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'ID y Nueva Fecha de Vencimiento son requeridos.' 
+            });
         }
+
+        const finalMonto = parseFloat(rawMonto) || 0;
 
         const connection = await db.getConnection();
         try {
             await connection.beginTransaction();
 
-            const [rows] = await connection.query("SELECT * FROM inventario WHERE id = ? FOR UPDATE", [id]);
-            if (rows.length === 0) {
-                await connection.rollback();
-                return res.status(404).json({ success: false, message: 'Cuenta de stock no encontrada.' });
+            const [rows] = await connection.query("SELECT * FROM inventario WHERE id = ? FOR UPDATE", [finalId]);
+            const stock = rows.length > 0 ? rows[0] : {};
+
+            const shouldUpdateCostoBase = (
+                actualizarCostoBase === true || 
+                actualizarCostoBase === 'true' || 
+                actualizarCostoBase === 1 || 
+                actualizarCostoBase === '1' ||
+                actualizar_costo_base === true ||
+                actualizar_costo_base === 'true' ||
+                actualizar_costo_base === 1
+            );
+
+            // 1. Sobreescribir con la fecha EXACTA enviada desde el modal (Eliminar DATE_ADD)
+            if (shouldUpdateCostoBase) {
+                await connection.query(
+                    "UPDATE inventario SET fecha_vencimiento = ?, costo = ? WHERE id = ?",
+                    [finalNuevaFechaVence, finalMonto, finalId]
+                );
+                try {
+                    await connection.query(
+                        "UPDATE suscripciones SET vence = ?, costo = ? WHERE id = ?",
+                        [finalNuevaFechaVence, finalMonto, finalId]
+                    );
+                } catch (e) {}
+            } else {
+                await connection.query(
+                    "UPDATE inventario SET fecha_vencimiento = ? WHERE id = ?",
+                    [finalNuevaFechaVence, finalId]
+                );
+                try {
+                    await connection.query(
+                        "UPDATE suscripciones SET vence = ? WHERE id = ?",
+                        [finalNuevaFechaVence, finalId]
+                    );
+                } catch (e) {}
             }
 
-            const stock = rows[0];
-            const finalCosto = (costo !== undefined && costo !== '' && !isNaN(Number(costo))) 
-                ? Number(costo) 
-                : Number(stock.costo || 0);
+            // 2. Registrar el egreso en la tabla de finanzas (gastos)
             const finalServicio = (servicio && String(servicio).trim() !== '') ? String(servicio).trim() : (stock.servicio || 'Proveedor');
             const finalCorreo = (correo && String(correo).trim() !== '') ? String(correo).trim() : (stock.correo || 'Stock');
 
-            // 1. Sumar 30 días a la fecha de vencimiento actual de la cuenta de stock
-            await connection.query(
-                "UPDATE inventario SET fecha_vencimiento = DATE_ADD(IF(fecha_vencimiento IS NULL OR fecha_vencimiento < NOW(), NOW(), fecha_vencimiento), INTERVAL 30 DAY) WHERE id = ?",
-                [id]
-            );
-
-            // 2. Registrar en la tabla de gastos
-            const descripcionGasto = `Renovación de Stock Proveedor - ${finalServicio} (${finalCorreo})`;
+            const descripcionGasto = `Renovación Stock - ID ${finalId}`;
             await connection.query(
                 "INSERT INTO gastos (descripcion, monto, fecha) VALUES (?, ?, NOW())",
-                [descripcionGasto, finalCosto]
+                [descripcionGasto, finalMonto]
             );
 
-            // 3. Registrar también en transactions para reportes financieros integrados
+            // 3. Registrar también en 'transactions' para reportes integrados
             try {
                 await connection.query(
                     "INSERT INTO transactions (type, amount, platform, client_name, description, date) VALUES ('GASTO_STOCK', ?, ?, ?, ?, NOW())",
-                    [finalCosto, finalServicio, finalCorreo, descripcionGasto]
+                    [finalMonto, finalServicio, finalCorreo, descripcionGasto]
                 );
             } catch (errTx) {
                 console.error("⚠️ Error registrando en transactions para GASTO_STOCK:", errTx.message);
             }
 
             await connection.commit();
-            console.log(`✅ Stock renovado para ${finalCorreo} (${finalServicio}) por 30 días. Costo: S/ ${finalCosto}`);
+            console.log(`✅ Stock renovado con las fechas ingresadas para ID ${finalId}: fecha ${finalNuevaFechaVence}, monto S/ ${finalMonto}`);
+
+            const finalCostoCuenta = shouldUpdateCostoBase ? finalMonto : Number(stock.costo || 0);
 
             return res.status(200).json({
                 success: true,
-                message: 'Stock renovado exitosamente'
+                message: 'Stock renovado con las fechas ingresadas.',
+                id: finalId,
+                nuevaFechaVence: finalNuevaFechaVence,
+                fecha_vencimiento: finalNuevaFechaVence,
+                vence: finalNuevaFechaVence,
+                monto: finalMonto,
+                nuevoMonto: finalMonto,
+                costo: finalCostoCuenta,
+                actualizarCostoBase: shouldUpdateCostoBase,
+                cuentaRenovada: {
+                    id: finalId,
+                    fecha_vencimiento: finalNuevaFechaVence,
+                    vence: finalNuevaFechaVence,
+                    costo: finalCostoCuenta,
+                    actualizarCostoBase: shouldUpdateCostoBase
+                }
             });
         } catch (error) {
             await connection.rollback();
-            console.error('❌ Error en transacción de renovación de stock:', error.message);
+            console.error('❌ Error al renovar stock:', error.message);
             return res.status(500).json({
                 success: false,
                 message: 'Error interno al procesar la renovación de stock',

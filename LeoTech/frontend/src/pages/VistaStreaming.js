@@ -60,6 +60,20 @@ function VistaStreaming({ api }) {
   });
   const [cargandoRenovacion, setCargandoRenovacion] = useState(false);
 
+  // --- ESTADO RENOVACIÓN DE STOCK ---
+  const [stockRenovar, setStockRenovar] = useState(null);
+  const [formRenovarStock, setFormRenovarStock] = useState({
+    id: null,
+    correo: '',
+    servicio: 'Netflix',
+    contrasena: '',
+    monto: '',
+    fechaInicio: dayjs().format('YYYY-MM-DD'),
+    nuevaFechaVence: '',
+    actualizarCostoBase: false
+  });
+  const [cargandoRenovacionStock, setCargandoRenovacionStock] = useState(false);
+
   // --- FORMULARIOS ---
   const [formCliente, setFormCliente] = useState({ 
     nombre: '', celular: '', servicio: 'Netflix', perfil: '', pin: '', 
@@ -496,48 +510,105 @@ function VistaStreaming({ api }) {
   const actualizarCuenta = (e) => { e.preventDefault(); axios.put(`${api}/inventario/${stockEditarId}`, formStock).then(() => { alert("✅ Stock Actualizado"); cargarDatos(); limpiarFormStock(); }); };
   const handleEditarStock = (i) => { setFormStock({ correo: i.correo, contrasena: i.contrasena, servicio: i.servicio, costo: i.costo, fecha_entrada: i.fecha_entrada ? i.fecha_entrada.split('T')[0] : '', fecha_vencimiento: i.fecha_vencimiento ? i.fecha_vencimiento.split('T')[0] : '' }); setEditandoStock(true); setStockEditarId(i.id); };
 
-  const handleRenovarStock = (cuenta) => {
-    if (!cuenta || !cuenta.id) return;
+  // --- HANDLERS MODAL RENOVACIÓN DE STOCK ---
+  const handleFechaInicioRenovarStockChange = (e) => {
+    const nuevaFechaInicio = e.target.value;
+    if (!nuevaFechaInicio) {
+      setFormRenovarStock(prev => ({ ...prev, fechaInicio: '' }));
+      return;
+    }
+    const nuevaFechaVenceCalculada = dayjs(nuevaFechaInicio).add(30, 'day').format('YYYY-MM-DD');
+    setFormRenovarStock(prev => ({
+      ...prev,
+      fechaInicio: nuevaFechaInicio,
+      nuevaFechaVence: nuevaFechaVenceCalculada
+    }));
+  };
 
-    const servicio = cuenta.servicio || 'Servicio';
-    const correo = cuenta.correo || 'Cuenta';
-    const costo = cuenta.costo !== undefined && cuenta.costo !== null && cuenta.costo !== '' ? cuenta.costo : 0;
+  const handleAbrirModalRenovarStock = (cuenta) => {
+    if (!cuenta || cuenta.id === undefined || cuenta.id === null) return;
+    const targetId = cuenta.id;
 
-    const confirmacion = window.confirm(`¿Renovar ${servicio} (${correo}) por 30 días con costo de S/ ${costo}?`);
-    if (!confirmacion) return;
+    const hoy = dayjs();
+    let baseDate = hoy;
+    if (cuenta.fecha_vencimiento || cuenta.vence) {
+      const fechaBaseStr = cuenta.fecha_vencimiento || cuenta.vence;
+      const fv = dayjs(fechaBaseStr);
+      if (fv.isValid() && fv.isAfter(hoy)) {
+        baseDate = fv;
+      }
+    }
+    const venceCalculado = baseDate.add(30, 'day').format('YYYY-MM-DD');
+
+    const costoBase = (cuenta.costo !== undefined && cuenta.costo !== null && cuenta.costo !== '') 
+      ? parseFloat(cuenta.costo) 
+      : 0;
+
+    setFormRenovarStock({
+      id: targetId,
+      correo: cuenta.correo || '',
+      servicio: cuenta.servicio || 'Netflix',
+      contrasena: cuenta.contrasena || '',
+      monto: costoBase,
+      fechaInicio: hoy.format('YYYY-MM-DD'),
+      nuevaFechaVence: venceCalculado,
+      actualizarCostoBase: true
+    });
+    setStockRenovar(cuenta);
+  };
+
+  const handleConfirmarRenovacionStock = (e) => {
+    e.preventDefault();
+    if (!formRenovarStock || formRenovarStock.id === undefined || formRenovarStock.id === null) return;
+
+    const targetId = formRenovarStock.id;
+    const nuevoMontoNum = parseFloat(formRenovarStock.monto || 0);
+    const fechaVencimientoInput = formRenovarStock.nuevaFechaVence;
+    const switchActualizarCosto = Boolean(formRenovarStock.actualizarCostoBase);
 
     const payload = {
-      id: cuenta.id,
-      costo: Number(costo),
-      servicio: servicio,
-      correo: correo
+      id: targetId,
+      monto: nuevoMontoNum,
+      nuevaFechaVence: fechaVencimientoInput,
+      actualizarCostoBase: switchActualizarCosto,
+      servicio: formRenovarStock.servicio,
+      correo: formRenovarStock.correo
     };
 
     const primaryUrl = api
       ? (api.endsWith('/') ? `${api}api/inventario/renovar` : `${api}/api/inventario/renovar`)
-      : '/api/inventario/renovar';
+      : 'https://leotech-streaming.onrender.com/api/inventario/renovar';
     const fallbackUrl = api
       ? (api.endsWith('/') ? `${api}inventario/renovar` : `${api}/inventario/renovar`)
-      : '/inventario/renovar';
+      : 'https://leotech-streaming.onrender.com/inventario/renovar';
+
+    setCargandoRenovacionStock(true);
 
     const makeRequest = (url, isFallback = false) => {
       axios.post(url, payload)
         .then(res => {
           if (res.status === 200 && res.data && res.data.success !== false) {
-            mostrarToast(`🎉 Stock de ${servicio} (${correo}) renovado por 30 días! (Costo: S/ ${costo})`, 'success');
-            
-            setDataInventario(prev => (Array.isArray(prev) ? prev.map(item => {
-              if (item.id === cuenta.id) {
-                const fechaBase = item.fecha_vencimiento ? dayjs(item.fecha_vencimiento) : dayjs();
-                const nuevaFecha = fechaBase.isAfter(dayjs()) ? fechaBase.add(30, 'day') : dayjs().add(30, 'day');
-                return {
-                  ...item,
-                  fecha_vencimiento: nuevaFecha.format('YYYY-MM-DD')
-                };
-              }
-              return item;
-            }) : []));
+            const cuentaResp = res.data.cuentaRenovada || res.data;
+            const nuevaFechaFinal = cuentaResp.nuevaFechaVence || cuentaResp.fecha_vencimiento || payload.nuevaFechaVence;
 
+            mostrarToast(`🎉 Stock de ${formRenovarStock.servicio} (${formRenovarStock.correo}) renovado hasta ${dayjs(nuevaFechaFinal).format('DD/MM/YYYY')} por S/ ${nuevoMontoNum.toFixed(2)}!`, 'success');
+            
+            // Actualización inmaculada e inmediata del Estado Local en React comparando estrictamente por ID único
+            setDataInventario(prevInventario => 
+              (Array.isArray(prevInventario) ? prevInventario.map(item => {
+                if (String(item.id) === String(targetId)) {
+                  return {
+                    ...item,
+                    costo: switchActualizarCosto ? nuevoMontoNum : item.costo,
+                    fecha_vencimiento: nuevaFechaFinal,
+                    vence: nuevaFechaFinal
+                  };
+                }
+                return item;
+              }) : [])
+            );
+
+            setStockRenovar(null);
             cargarDatos();
           } else {
             mostrarToast(`❌ Error: ${res.data?.message || res.data?.error || 'Error al renovar stock'}`, 'danger');
@@ -550,6 +621,9 @@ function VistaStreaming({ api }) {
             return;
           }
           mostrarToast(`❌ Error al renovar stock: ${err.response?.data?.message || err.message}`, 'danger');
+        })
+        .finally(() => {
+          setCargandoRenovacionStock(false);
         });
     };
 
@@ -945,10 +1019,10 @@ function VistaStreaming({ api }) {
                       <td className="text-center">
                         <div className="d-flex justify-content-center gap-2">
                           <button 
-                            onClick={() => handleRenovarStock(i)} 
+                            onClick={() => handleAbrirModalRenovarStock(i)} 
                             className="btn btn-sm fw-bold shadow-sm d-inline-flex align-items-center gap-1" 
                             style={{backgroundColor:'#10B981', color:'white', border:'none', borderRadius:'20px', padding:'5px 14px'}}
-                            title={`Renovar ${i.servicio} (${i.correo}) por 30 días`}
+                            title={`Renovar ${i.servicio} (${i.correo})`}
                           >
                             <i className="bi bi-arrow-repeat"></i> renovar
                           </button>
@@ -1237,6 +1311,142 @@ function VistaStreaming({ api }) {
                         <>
                           <i className="bi bi-arrow-repeat"></i>
                           <span>Confirmar Renovación</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 📦 MODAL DE RENOVACIÓN DE STOCK (CUENTA PROVEEDORA) */}
+        {stockRenovar && (
+          <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 1070 }}>
+            <div className="modal-dialog modal-dialog-centered">
+              <div className="modal-content border-0 shadow-lg" style={{ borderRadius: '16px', overflow: 'hidden' }}>
+                
+                {/* CABECERA MODAL */}
+                <div className="modal-header text-white" style={{ background: 'linear-gradient(135deg, #d97706 0%, #b45309 100%)' }}>
+                  <div className="d-flex align-items-center gap-2">
+                    <div className="p-2 bg-white bg-opacity-20 rounded-circle text-white d-flex align-items-center justify-content-center" style={{ width: '40px', height: '40px' }}>
+                      <i className="bi bi-box-seam-fill fs-4"></i>
+                    </div>
+                    <div>
+                      <h5 className="modal-title fw-bold mb-0 text-white">Renovar Cuenta de Stock</h5>
+                      <small className="text-white opacity-85">Extender vigencia y registrar egreso en finanzas</small>
+                    </div>
+                  </div>
+                  <button type="button" className="btn-close btn-close-white" onClick={() => setStockRenovar(null)}></button>
+                </div>
+
+                <form onSubmit={handleConfirmarRenovacionStock}>
+                  <div className="modal-body p-4 bg-light">
+                    
+                    {/* PLATAFORMA Y CORREO CARD */}
+                    <div className="d-flex align-items-center justify-content-between p-3 bg-white rounded-3 shadow-sm mb-3 border">
+                      <div>
+                        <span className="badge text-white px-2 py-1 mb-1" style={{ backgroundColor: getBrandColor(formRenovarStock.servicio) }}>
+                          {formRenovarStock.servicio}
+                        </span>
+                        <div className="fw-bold text-dark text-truncate" style={{ maxWidth: '240px' }} title={formRenovarStock.correo}>
+                          <i className="bi bi-envelope-fill me-1 text-muted"></i>{formRenovarStock.correo}
+                        </div>
+                      </div>
+                      {formRenovarStock.contrasena && (
+                        <div className="text-end">
+                          <span className="small text-muted d-block">Contraseña</span>
+                          <span className="badge bg-secondary text-white">{formRenovarStock.contrasena}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* FECHAS */}
+                    <div className="row g-3 mb-3">
+                      <div className="col-6">
+                        <label className="form-label small fw-bold text-muted">Fecha de Inicio / Pago</label>
+                        <input 
+                          type="date" 
+                          className="form-control shadow-sm fw-bold border-success" 
+                          value={formRenovarStock.fechaInicio} 
+                          onChange={handleFechaInicioRenovarStockChange}
+                          required
+                        />
+                      </div>
+
+                      <div className="col-6">
+                        <label className="form-label small fw-bold text-muted">Nueva Fecha Vencimiento</label>
+                        <input 
+                          type="date" 
+                          className="form-control shadow-sm fw-bold border-warning" 
+                          value={formRenovarStock.nuevaFechaVence} 
+                          onChange={e => setFormRenovarStock({...formRenovarStock, nuevaFechaVence: e.target.value})}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    {/* MONTO / COSTO */}
+                    <div className="mb-3">
+                      <label className="form-label small fw-bold text-muted">Monto de Renovación (S/)</label>
+                      <div className="input-group shadow-sm">
+                        <span className="input-group-text bg-white fw-bold text-warning">S/</span>
+                        <input 
+                          type="number" 
+                          step="0.5" 
+                          min="0"
+                          onWheel={handleWheel}
+                          className="form-control fw-bold text-dark fs-5" 
+                          value={formRenovarStock.monto} 
+                          onChange={e => setFormRenovarStock({...formRenovarStock, monto: e.target.value})}
+                          required
+                          placeholder="Ej: 30.00"
+                        />
+                      </div>
+                      <small className="text-muted" style={{ fontSize: '0.75rem' }}>Indica la tarifa real pagada al proveedor por esta renovación.</small>
+                    </div>
+
+                    {/* CHECKBOX GUARDAR NUEVO COSTO BASE */}
+                    <div className="form-check form-switch p-3 bg-white border rounded-3 shadow-sm d-flex align-items-center justify-content-between mb-2 ms-0">
+                      <label className="form-check-label small fw-bold text-dark cursor-pointer mb-0" htmlFor="switchCostoBase">
+                        <i className="bi bi-save me-1 text-primary"></i>
+                        Actualizar también costo base en inventario
+                      </label>
+                      <input 
+                        className="form-check-input ms-2" 
+                        type="checkbox" 
+                        role="switch" 
+                        id="switchCostoBase"
+                        checked={formRenovarStock.actualizarCostoBase}
+                        onChange={e => setFormRenovarStock({...formRenovarStock, actualizarCostoBase: e.target.checked})}
+                        style={{ width: '2.5em', height: '1.25em', cursor: 'pointer' }}
+                      />
+                    </div>
+
+                    <div className="p-2 bg-warning bg-opacity-10 border border-warning border-opacity-25 rounded-3 text-dark small d-flex align-items-center gap-2">
+                      <i className="bi bi-info-circle-fill text-warning fs-5"></i>
+                      <span>Se registrará un egreso de <strong>S/ {Number(formRenovarStock.monto || 0).toFixed(2)}</strong> en el sistema de Gastos / Transacciones.</span>
+                    </div>
+
+                  </div>
+
+                  {/* PIE MODAL */}
+                  <div className="modal-footer bg-white border-top-0 d-flex justify-content-end gap-2">
+                    <button type="button" className="btn btn-light rounded-pill px-4 fw-bold" onClick={() => setStockRenovar(null)} disabled={cargandoRenovacionStock}>
+                      Cancelar
+                    </button>
+                    <button type="submit" className="btn text-white rounded-pill px-4 fw-bold shadow-sm d-flex align-items-center gap-2" style={{ backgroundColor: '#d97706', border: 'none' }} disabled={cargandoRenovacionStock}>
+                      {cargandoRenovacionStock ? (
+                        <>
+                          <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                          <span>Procesando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <i className="bi bi-check-circle-fill"></i>
+                          <span>Confirmar y Registrar Pago</span>
                         </>
                       )}
                     </button>
