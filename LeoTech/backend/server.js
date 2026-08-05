@@ -900,6 +900,84 @@ app.delete('/inventario/:id', async (req, res) => {
 });
 
 // ==========================================
+//  🔄 RENOVACIÓN DE STOCK (INVENTARIO PROVEEDORES)
+// ==========================================
+const handleRenovarStockApi = async (req, res) => {
+    try {
+        const { id, costo, servicio, correo } = req.body || {};
+
+        if (!id) {
+            return res.status(400).json({ success: false, message: 'Falta el ID de la cuenta de stock para renovar.' });
+        }
+
+        const connection = await db.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            const [rows] = await connection.query("SELECT * FROM inventario WHERE id = ? FOR UPDATE", [id]);
+            if (rows.length === 0) {
+                await connection.rollback();
+                return res.status(404).json({ success: false, message: 'Cuenta de stock no encontrada.' });
+            }
+
+            const stock = rows[0];
+            const finalCosto = (costo !== undefined && costo !== '' && !isNaN(Number(costo))) 
+                ? Number(costo) 
+                : Number(stock.costo || 0);
+            const finalServicio = (servicio && String(servicio).trim() !== '') ? String(servicio).trim() : (stock.servicio || 'Proveedor');
+            const finalCorreo = (correo && String(correo).trim() !== '') ? String(correo).trim() : (stock.correo || 'Stock');
+
+            // 1. Sumar 30 días a la fecha de vencimiento actual de la cuenta de stock
+            await connection.query(
+                "UPDATE inventario SET fecha_vencimiento = DATE_ADD(IF(fecha_vencimiento IS NULL OR fecha_vencimiento < NOW(), NOW(), fecha_vencimiento), INTERVAL 30 DAY) WHERE id = ?",
+                [id]
+            );
+
+            // 2. Registrar en la tabla de gastos
+            const descripcionGasto = `Renovación de Stock Proveedor - ${finalServicio} (${finalCorreo})`;
+            await connection.query(
+                "INSERT INTO gastos (descripcion, monto, fecha) VALUES (?, ?, NOW())",
+                [descripcionGasto, finalCosto]
+            );
+
+            // 3. Registrar también en transactions para reportes financieros integrados
+            try {
+                await connection.query(
+                    "INSERT INTO transactions (type, amount, platform, client_name, description, date) VALUES ('GASTO_STOCK', ?, ?, ?, ?, NOW())",
+                    [finalCosto, finalServicio, finalCorreo, descripcionGasto]
+                );
+            } catch (errTx) {
+                console.error("⚠️ Error registrando en transactions para GASTO_STOCK:", errTx.message);
+            }
+
+            await connection.commit();
+            console.log(`✅ Stock renovado para ${finalCorreo} (${finalServicio}) por 30 días. Costo: S/ ${finalCosto}`);
+
+            return res.status(200).json({
+                success: true,
+                message: 'Stock renovado exitosamente'
+            });
+        } catch (error) {
+            await connection.rollback();
+            console.error('❌ Error en transacción de renovación de stock:', error.message);
+            return res.status(500).json({
+                success: false,
+                message: 'Error interno al procesar la renovación de stock',
+                error: error.message
+            });
+        } finally {
+            connection.release();
+        }
+    } catch (error) {
+        console.error('❌ Error general en /api/inventario/renovar:', error.message);
+        return res.status(500).json({ success: false, message: 'Error interno del servidor', error: error.message });
+    }
+};
+
+app.post('/api/inventario/renovar', handleRenovarStockApi);
+app.post('/inventario/renovar', handleRenovarStockApi);
+
+// ==========================================
 //  💵 RUTAS VENTAS
 // ==========================================
 app.get('/ventas', async (req, res) => { 

@@ -496,6 +496,66 @@ function VistaStreaming({ api }) {
   const actualizarCuenta = (e) => { e.preventDefault(); axios.put(`${api}/inventario/${stockEditarId}`, formStock).then(() => { alert("✅ Stock Actualizado"); cargarDatos(); limpiarFormStock(); }); };
   const handleEditarStock = (i) => { setFormStock({ correo: i.correo, contrasena: i.contrasena, servicio: i.servicio, costo: i.costo, fecha_entrada: i.fecha_entrada ? i.fecha_entrada.split('T')[0] : '', fecha_vencimiento: i.fecha_vencimiento ? i.fecha_vencimiento.split('T')[0] : '' }); setEditandoStock(true); setStockEditarId(i.id); };
 
+  const handleRenovarStock = (cuenta) => {
+    if (!cuenta || !cuenta.id) return;
+
+    const servicio = cuenta.servicio || 'Servicio';
+    const correo = cuenta.correo || 'Cuenta';
+    const costo = cuenta.costo !== undefined && cuenta.costo !== null && cuenta.costo !== '' ? cuenta.costo : 0;
+
+    const confirmacion = window.confirm(`¿Renovar ${servicio} (${correo}) por 30 días con costo de S/ ${costo}?`);
+    if (!confirmacion) return;
+
+    const payload = {
+      id: cuenta.id,
+      costo: Number(costo),
+      servicio: servicio,
+      correo: correo
+    };
+
+    const primaryUrl = api
+      ? (api.endsWith('/') ? `${api}api/inventario/renovar` : `${api}/api/inventario/renovar`)
+      : '/api/inventario/renovar';
+    const fallbackUrl = api
+      ? (api.endsWith('/') ? `${api}inventario/renovar` : `${api}/inventario/renovar`)
+      : '/inventario/renovar';
+
+    const makeRequest = (url, isFallback = false) => {
+      axios.post(url, payload)
+        .then(res => {
+          if (res.status === 200 && res.data && res.data.success !== false) {
+            mostrarToast(`🎉 Stock de ${servicio} (${correo}) renovado por 30 días! (Costo: S/ ${costo})`, 'success');
+            
+            setDataInventario(prev => (Array.isArray(prev) ? prev.map(item => {
+              if (item.id === cuenta.id) {
+                const fechaBase = item.fecha_vencimiento ? dayjs(item.fecha_vencimiento) : dayjs();
+                const nuevaFecha = fechaBase.isAfter(dayjs()) ? fechaBase.add(30, 'day') : dayjs().add(30, 'day');
+                return {
+                  ...item,
+                  fecha_vencimiento: nuevaFecha.format('YYYY-MM-DD')
+                };
+              }
+              return item;
+            }) : []));
+
+            cargarDatos();
+          } else {
+            mostrarToast(`❌ Error: ${res.data?.message || res.data?.error || 'Error al renovar stock'}`, 'danger');
+          }
+        })
+        .catch(err => {
+          console.error(`Error al renovar stock en ${url}:`, err);
+          if (err.response && err.response.status === 404 && fallbackUrl && !isFallback) {
+            makeRequest(fallbackUrl, true);
+            return;
+          }
+          mostrarToast(`❌ Error al renovar stock: ${err.response?.data?.message || err.message}`, 'danger');
+        });
+    };
+
+    makeRequest(primaryUrl);
+  };
+
   // ORDENAMIENTO DE SERVICIOS Y CUENTAS (DEUDORES / VENCIDOS PRIMERO)
   const serviciosOrdenados = useMemo(() => {
     return Object.keys(clientesAgrupados).sort((servA, servB) => {
@@ -882,7 +942,32 @@ function VistaStreaming({ api }) {
                       <td><div>{i.servicio}</div><div className="text-muted small">{i.contrasena}</div></td>
                       <td className="text-center fw-bold text-secondary">S/ {i.costo || '0'}</td>
                       <td className="text-center"><span className="badge rounded-pill" style={{backgroundColor: dayjs(i.fecha_vencimiento).add(10, 'hour').diff(dayjs(), 'day') < 5 ? '#dc3545' : '#198754'}}>{i.fecha_vencimiento ? dayjs(i.fecha_vencimiento).add(10, 'hour').format('DD/MM') : '-'}</span></td>
-                      <td className="text-center"><div className="d-flex justify-content-center gap-2"><button onClick={() => handleEditarStock(i)} className="btn btn-sm fw-bold shadow-sm" style={{backgroundColor:'white', color:'#0d6efd', border:'1px solid #dee2e6', borderRadius:'20px', padding:'5px 15px'}}>editar</button><button onClick={() => handleEliminar(i.id, 'inventario')} className="btn btn-sm fw-bold shadow-sm" style={{backgroundColor:'white', color:'#dc3545', border:'1px solid #dee2e6', borderRadius:'20px', padding:'5px 15px'}}>eliminar</button></div></td>
+                      <td className="text-center">
+                        <div className="d-flex justify-content-center gap-2">
+                          <button 
+                            onClick={() => handleRenovarStock(i)} 
+                            className="btn btn-sm fw-bold shadow-sm d-inline-flex align-items-center gap-1" 
+                            style={{backgroundColor:'#10B981', color:'white', border:'none', borderRadius:'20px', padding:'5px 14px'}}
+                            title={`Renovar ${i.servicio} (${i.correo}) por 30 días`}
+                          >
+                            <i className="bi bi-arrow-repeat"></i> renovar
+                          </button>
+                          <button 
+                            onClick={() => handleEditarStock(i)} 
+                            className="btn btn-sm fw-bold shadow-sm" 
+                            style={{backgroundColor:'white', color:'#0d6efd', border:'1px solid #dee2e6', borderRadius:'20px', padding:'5px 15px'}}
+                          >
+                            editar
+                          </button>
+                          <button 
+                            onClick={() => handleEliminar(i.id, 'inventario')} 
+                            className="btn btn-sm fw-bold shadow-sm" 
+                            style={{backgroundColor:'white', color:'#dc3545', border:'1px solid #dee2e6', borderRadius:'20px', padding:'5px 15px'}}
+                          >
+                            eliminar
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                   {stockFiltrado.length === 0 && <tr><td colSpan="5" className="text-center text-muted py-4">No tienes stock de {filtroStock} 😔</td></tr>}
