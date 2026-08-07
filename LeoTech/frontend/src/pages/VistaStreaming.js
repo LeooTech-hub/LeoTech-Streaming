@@ -7,6 +7,19 @@ import { NO_CACHE_HEADERS, normalizeEliminado } from '../api';
 // --- HELPERS EXTERNOS Y CONSTANTES ---
 const EMPTY_ARRAY = [];
 
+const sumarDiasFechaLocal = (fechaStr, dias = 30) => {
+  if (!fechaStr) return '';
+  // Dividimos YYYY-MM-DD para evitar errores de zona horaria UTC
+  const [year, month, day] = fechaStr.split('-').map(Number);
+  const fecha = new Date(year, month - 1, day);
+  fecha.setDate(fecha.getDate() + dias);
+  
+  const yyyy = fecha.getFullYear();
+  const mm = String(fecha.getMonth() + 1).padStart(2, '0');
+  const dd = String(fecha.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
 const getFechaVencimientoStr = (c) => {
   if (!c) return '';
   return c.fecha_finalizacion || c.fecha_fin || c.vencimiento || c.fechaVencimiento || '';
@@ -504,8 +517,8 @@ function VistaStreaming({ api }) {
 
 
   // STOCK HANDLERS
-  const handleFechaStockChange = (e) => { const ne = e.target.value; setFormStock({ ...formStock, fecha_entrada: ne, fecha_vencimiento: dayjs(ne).add(30, 'day').format('YYYY-MM-DD') }); };
-  const limpiarFormStock = () => { setFormStock({ correo: '', contrasena: '', servicio: 'Netflix', costo: '', fecha_entrada: dayjs().format('YYYY-MM-DD'), fecha_vencimiento: dayjs().add(30, 'day').format('YYYY-MM-DD') }); setEditandoStock(false); setStockEditarId(null); };
+  const handleFechaStockChange = (e) => { const ne = e.target.value; setFormStock({ ...formStock, fecha_entrada: ne, fecha_vencimiento: sumarDiasFechaLocal(ne, 30) }); };
+  const limpiarFormStock = () => { const hoyStr = dayjs().format('YYYY-MM-DD'); setFormStock({ correo: '', contrasena: '', servicio: 'Netflix', costo: '', fecha_entrada: hoyStr, fecha_vencimiento: sumarDiasFechaLocal(hoyStr, 30) }); setEditandoStock(false); setStockEditarId(null); };
   const guardarCuenta = (e) => { e.preventDefault(); axios.post(`${api}/inventario`, formStock).then(() => { alert("✅ Cuenta Agregada"); cargarDatos(); limpiarFormStock(); }); };
   const actualizarCuenta = (e) => { e.preventDefault(); axios.put(`${api}/inventario/${stockEditarId}`, formStock).then(() => { alert("✅ Stock Actualizado"); cargarDatos(); limpiarFormStock(); }); };
   const handleEditarStock = (i) => { setFormStock({ correo: i.correo, contrasena: i.contrasena, servicio: i.servicio, costo: i.costo, fecha_entrada: i.fecha_entrada ? i.fecha_entrada.split('T')[0] : '', fecha_vencimiento: i.fecha_vencimiento ? i.fecha_vencimiento.split('T')[0] : '' }); setEditandoStock(true); setStockEditarId(i.id); };
@@ -514,10 +527,10 @@ function VistaStreaming({ api }) {
   const handleFechaInicioRenovarStockChange = (e) => {
     const nuevaFechaInicio = e.target.value;
     if (!nuevaFechaInicio) {
-      setFormRenovarStock(prev => ({ ...prev, fechaInicio: '' }));
+      setFormRenovarStock(prev => ({ ...prev, fechaInicio: '', nuevaFechaVence: '' }));
       return;
     }
-    const nuevaFechaVenceCalculada = dayjs(nuevaFechaInicio).add(30, 'day').format('YYYY-MM-DD');
+    const nuevaFechaVenceCalculada = sumarDiasFechaLocal(nuevaFechaInicio, 30);
     setFormRenovarStock(prev => ({
       ...prev,
       fechaInicio: nuevaFechaInicio,
@@ -529,16 +542,8 @@ function VistaStreaming({ api }) {
     if (!cuenta || cuenta.id === undefined || cuenta.id === null) return;
     const targetId = cuenta.id;
 
-    const hoy = dayjs();
-    let baseDate = hoy;
-    if (cuenta.fecha_vencimiento || cuenta.vence) {
-      const fechaBaseStr = cuenta.fecha_vencimiento || cuenta.vence;
-      const fv = dayjs(fechaBaseStr);
-      if (fv.isValid() && fv.isAfter(hoy)) {
-        baseDate = fv;
-      }
-    }
-    const venceCalculado = baseDate.add(30, 'day').format('YYYY-MM-DD');
+    const fechaInicioStr = dayjs().format('YYYY-MM-DD');
+    const venceCalculado = sumarDiasFechaLocal(fechaInicioStr, 30);
 
     const costoBase = (cuenta.costo !== undefined && cuenta.costo !== null && cuenta.costo !== '') 
       ? parseFloat(cuenta.costo) 
@@ -550,7 +555,7 @@ function VistaStreaming({ api }) {
       servicio: cuenta.servicio || 'Netflix',
       contrasena: cuenta.contrasena || '',
       monto: costoBase,
-      fechaInicio: hoy.format('YYYY-MM-DD'),
+      fechaInicio: fechaInicioStr,
       nuevaFechaVence: venceCalculado,
       actualizarCostoBase: true
     });
