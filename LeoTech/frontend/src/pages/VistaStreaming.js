@@ -7,22 +7,30 @@ import { NO_CACHE_HEADERS, normalizeEliminado } from '../api';
 // --- HELPERS EXTERNOS Y CONSTANTES ---
 const EMPTY_ARRAY = [];
 
-const sumarDiasFechaLocal = (fechaStr, dias = 30) => {
-  if (!fechaStr) return '';
-  // Dividimos YYYY-MM-DD para evitar errores de zona horaria UTC
-  const [year, month, day] = fechaStr.split('-').map(Number);
+const calcularSiguienteVencimiento = (fechaBaseStr, dias = 30) => {
+  if (!fechaBaseStr) return '';
+  
+  // Normalizar fecha formateada o timestamp a YYYY-MM-DD
+  const fechaLimpia = String(fechaBaseStr).split('T')[0];
+  const [year, month, day] = fechaLimpia.split('-').map(Number);
+  
+  if (!year || !month || !day) return '';
+
+  // Crear fecha en zona horaria local
   const fecha = new Date(year, month - 1, day);
   fecha.setDate(fecha.getDate() + dias);
-  
+
   const yyyy = fecha.getFullYear();
   const mm = String(fecha.getMonth() + 1).padStart(2, '0');
   const dd = String(fecha.getDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
 };
 
+const sumarDiasFechaLocal = calcularSiguienteVencimiento;
+
 const getFechaVencimientoStr = (c) => {
   if (!c) return '';
-  return c.fecha_finalizacion || c.fecha_fin || c.vencimiento || c.fechaVencimiento || '';
+  return c.fecha_finalizacion || c.fecha_fin || c.vencimiento || c.fechaVencimiento || c.vence || '';
 };
 
 const compararVencimiento = (a, b) => {
@@ -69,6 +77,7 @@ function VistaStreaming({ api }) {
     perfil: '',
     pin: '',
     monto: '',
+    fecha_inicio: '',
     fecha_finalizacion: ''
   });
   const [cargandoRenovacion, setCargandoRenovacion] = useState(false);
@@ -439,19 +448,24 @@ function VistaStreaming({ api }) {
   };
 
   // --- HANDLERS RENOVACIÓN DE PERFIL ---
-  const handleAbrirModalRenovar = (c) => {
-    const hoy = dayjs();
-    const fechaFinActualStr = getFechaVencimientoStr(c);
-    let baseDate = hoy;
-    
-    if (fechaFinActualStr) {
-      const fin = dayjs(fechaFinActualStr);
-      if (fin.isAfter(hoy)) {
-        baseDate = fin;
-      }
+  const handleFechaInicioRenovarChange = (e) => {
+    const nuevaFechaInicio = e.target.value;
+    if (!nuevaFechaInicio) {
+      setFormRenovar(prev => ({ ...prev, fecha_inicio: '', fecha_finalizacion: '' }));
+      return;
     }
-    
-    const nuevaFechaVencimiento = baseDate.add(30, 'day').format('YYYY-MM-DD');
+    const nuevaFechaVencimiento = calcularSiguienteVencimiento(nuevaFechaInicio, 30);
+    setFormRenovar(prev => ({
+      ...prev,
+      fecha_inicio: nuevaFechaInicio,
+      fecha_finalizacion: nuevaFechaVencimiento
+    }));
+  };
+
+  const handleAbrirModalRenovar = (c) => {
+    const fechaFinActualStr = getFechaVencimientoStr(c);
+    const fechaInicioBase = fechaFinActualStr ? fechaFinActualStr.split('T')[0] : dayjs().format('YYYY-MM-DD');
+    const nuevaFechaVencimiento = calcularSiguienteVencimiento(fechaInicioBase, 30);
 
     setFormRenovar({
       id: c.id,
@@ -460,6 +474,7 @@ function VistaStreaming({ api }) {
       perfil: c.perfil || 'Perfil 1',
       pin: c.pin_perfil || c.pin || '',
       monto: c.monto || 15,
+      fecha_inicio: fechaInicioBase,
       fecha_finalizacion: nuevaFechaVencimiento
     });
     setPerfilRenovar(c);
@@ -473,7 +488,9 @@ function VistaStreaming({ api }) {
       id: formRenovar.id,
       monto: Number(formRenovar.monto || 0),
       cliente_nombre: formRenovar.nombre_cliente,
-      plataforma: formRenovar.servicio
+      plataforma: formRenovar.servicio,
+      fecha_finalizacion: formRenovar.fecha_finalizacion,
+      fecha_inicio: formRenovar.fecha_inicio
     };
 
     const primaryUrl = api
@@ -1263,23 +1280,34 @@ function VistaStreaming({ api }) {
                       </div>
                     </div>
 
-                    {/* MONTO Y FECHA */}
+                    {/* MONTO Y FECHAS DE RENOVACIÓN */}
+                    <div className="mb-3">
+                      <label className="form-label small fw-bold text-muted">Monto Renovación (S/)</label>
+                      <div className="input-group shadow-sm">
+                        <span className="input-group-text bg-white fw-bold text-success">S/</span>
+                        <input 
+                          type="number" 
+                          step="0.5" 
+                          min="0"
+                          onWheel={handleWheel}
+                          className="form-control fw-bold text-success" 
+                          value={formRenovar.monto} 
+                          onChange={e => setFormRenovar({...formRenovar, monto: e.target.value})}
+                          required
+                        />
+                      </div>
+                    </div>
+
                     <div className="row g-3">
                       <div className="col-6">
-                        <label className="form-label small fw-bold text-muted">Monto Renovación (S/)</label>
-                        <div className="input-group shadow-sm">
-                          <span className="input-group-text bg-white fw-bold text-success">S/</span>
-                          <input 
-                            type="number" 
-                            step="0.5" 
-                            min="0"
-                            onWheel={handleWheel}
-                            className="form-control fw-bold text-success" 
-                            value={formRenovar.monto} 
-                            onChange={e => setFormRenovar({...formRenovar, monto: e.target.value})}
-                            required
-                          />
-                        </div>
+                        <label className="form-label small fw-bold text-muted">Fecha de Renovación / Pago</label>
+                        <input 
+                          type="date" 
+                          className="form-control shadow-sm fw-bold border-primary" 
+                          value={formRenovar.fecha_inicio} 
+                          onChange={handleFechaInicioRenovarChange}
+                          required
+                        />
                       </div>
 
                       <div className="col-6">

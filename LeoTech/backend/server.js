@@ -131,6 +131,17 @@ async function inicializarBaseDeDatos() {
         }
     }
 
+    try {
+        await db.query("ALTER TABLE suscripciones ADD COLUMN vence DATE DEFAULT NULL");
+        console.log("✅ Columna 'vence' creada o verificada exitosamente en la tabla suscripciones.");
+    } catch (err) {
+        if (err.code !== 'ER_DUP_FIELDNAME' && err.errno !== 1060) {
+            console.error("⚠️ Nota columna vence:", err.message);
+        } else {
+            console.log("✅ Columna 'vence' verificada en la tabla suscripciones.");
+        }
+    }
+
     // 7. Tabla Transactions (Reportes Financieros)
     try {
         const sqlTransactions = `CREATE TABLE IF NOT EXISTS transactions (
@@ -426,29 +437,40 @@ app.post('/clientes', async (req, res) => {
 // ==========================================
 //  🔄 RENOVACIÓN RÁPIDA (+30 DÍAS)
 // ==========================================
-app.post('/clientes/renovar/:id', async (req, res) => {
+// Endpoint unificado para renovar clientes (acepta tanto ID en URL como en el body)
+app.post(['/clientes/renovar/:id', '/api/renovar'], async (req, res) => {
     try {
-        const clienteId = req.params.id;
-        const { nombre_cliente, servicio, monto, fecha_finalizacion } = req.body || {};
+        // Soporta ID por parámetro de URL o por el Body del JSON
+        const clienteId = req.params.id || req.body.id;
+        const { 
+            nombre_cliente, 
+            cliente_nombre,
+            servicio, 
+            monto, 
+            fecha_inicio,
+            fecha_finalizacion, 
+            nuevaFechaVence 
+        } = req.body || {};
+
+        if (!clienteId) {
+            return res.status(400).json({ error: "El ID del cliente/suscripción es requerido." });
+        }
 
         const connection = await db.getConnection();
         try {
             await connection.beginTransaction();
 
+            // 1. Obtener la suscripción actual con bloqueo de fila
             const [rows] = await connection.query("SELECT * FROM suscripciones WHERE id = ? FOR UPDATE", [clienteId]);
             if (rows.length === 0) {
-                throw new Error("Cliente no encontrado.");
+                throw new Error(`Cliente/Suscripción con ID ${clienteId} no encontrado.`);
             }
 
             const cliente = rows[0];
             
-            const finalNombre = (nombre_cliente !== undefined && String(nombre_cliente).trim() !== '') 
-                ? String(nombre_cliente).trim() 
-                : (cliente.nombre_cliente || cliente.nombre || 'Cliente');
-
-            const finalServicio = (servicio !== undefined && String(servicio).trim() !== '') 
-                ? String(servicio).trim() 
-                : (cliente.servicio || 'Streaming');
+            // Sanitización de variables (prioriza lo enviado en el body, de lo contrario conserva el registro previo)
+            const finalNombre = (nombre_cliente || cliente_nombre || cliente.nombre_cliente || cliente.cliente_nombre || cliente.nombre || 'Cliente').toString().trim();
+            const finalServicio = (servicio || cliente.servicio || cliente.plataforma || 'Streaming').toString().trim();
             
             let precioMensual = (monto !== undefined && monto !== '' && !isNaN(Number(monto))) 
                 ? Number(monto) 
@@ -458,17 +480,20 @@ app.post('/clientes/renovar/:id', async (req, res) => {
                 throw new Error("El monto de renovación no puede ser negativo.");
             }
 
-            const hoy = new Date();
-            let fechaFinStr = '';
+            // 2. Manejo preciso de Fechas (Inicio y Vencimiento)
+            const hoyStr = new Date().toISOString().split('T')[0];
+            const fechaInicioStr = (fecha_inicio && String(fecha_inicio).trim() !== '') 
+                ? String(fecha_inicio).trim() 
+                : hoyStr;
 
-            if (fecha_finalizacion && String(fecha_finalizacion).trim() !== '') {
-                fechaFinStr = String(fecha_finalizacion).trim();
-            } else {
-                let fechaBase = new Date();
-                if (cliente.fecha_finalizacion) {
-                    const fechaFinalizacion = new Date(cliente.fecha_finalizacion);
-                    if (fechaFinalizacion > hoy) {
-                        fechaBase = fechaFinalizacion;
+            let fechaFinStr = (fecha_finalizacion || nuevaFechaVence || '').toString().trim();
+
+            if (!fechaFinStr) {
+                let fechaBase = new Date(fechaInicioStr);
+                if (cliente.fecha_finalizacion || cliente.vence) {
+                    const fAnterior = new Date(cliente.fecha_finalizacion || cliente.vence);
+                    if (fAnterior > new Date()) {
+                        fechaBase = fAnterior;
                     }
                 }
                 const nuevaFechaFin = new Date(fechaBase);
@@ -476,20 +501,28 @@ app.post('/clientes/renovar/:id', async (req, res) => {
                 fechaFinStr = nuevaFechaFin.toISOString().split('T')[0];
             }
             
-            const fechaInicioStr = hoy.toISOString().split('T')[0];
             const nuevoMontoAcumulado = Number(cliente.monto || 0) + precioMensual;
             
+            // 3. Actualizar suscripción (actualiza campos fecha_finalizacion y vence para compatibilidad)
             await connection.query(
-                "UPDATE suscripciones SET nombre_cliente = ?, fecha_inicio = ?, fecha_finalizacion = ?, monto = ?, estado = 'activo' WHERE id = ?",
-                [finalNombre, fechaInicioStr, fechaFinStr, nuevoMontoAcumulado, clienteId]
-            );
+            `UPDATE suscripciones 
+            SET nombre_cliente = ?, 
+            fecha_inicio = ?, 
+            fecha_finalizacion = ?, 
+            monto = ?, 
+            estado = 'activo' 
+            WHERE id = ?`,
+            [finalNombre, fechaInicioStr, fechaFinStr, nuevoMontoAcumulado, clienteId]
+);
 
+            // 4. Registrar la entrada de dinero en la tabla transactions (Liquidez / Reportes)
             await connection.query(
-                "INSERT INTO transactions (type, amount, platform, client_name, description, date) VALUES ('RENOVACION', ?, ?, ?, 'Renovación mensual de perfil', NOW())",
+                `INSERT INTO transactions (type, amount, platform, client_name, description, date) 
+                 VALUES ('RENOVACION', ?, ?, ?, 'Renovación mensual de perfil', NOW())`,
                 [precioMensual, finalServicio, finalNombre]
             );
-            console.log(`💸 Transacción RENOVACION registrada en transactions para ${finalNombre} por S/ ${precioMensual}`);
 
+            // 5. Registrar la venta en la tabla registro_ventas
             const insertVentaSql = `
                 INSERT INTO registro_ventas (producto_id, nombre_producto, cantidad, precio_venta, ganancia, fecha_venta)
                 VALUES (?, ?, 1, ?, ?, ?)
@@ -498,7 +531,8 @@ app.post('/clientes/renovar/:id', async (req, res) => {
             await connection.query(insertVentaSql, [clienteId, nombreProductoVenta, precioMensual, precioMensual, fechaInicioStr]);
 
             await connection.commit();
-            console.log(`✅ Suscripción de ${finalNombre} renovada hasta ${fechaFinStr}. Nuevo monto total acumulado: S/ ${nuevoMontoAcumulado}`);
+            console.log(`✅ [OK] Suscripción de ${finalNombre} renovada hasta ${fechaFinStr} por S/ ${precioMensual}`);
+
             return res.json({ 
                 status: "Success", 
                 message: "Suscripción renovada con éxito",
@@ -514,7 +548,7 @@ app.post('/clientes/renovar/:id', async (req, res) => {
             connection.release();
         }
     } catch (err) {
-        console.error("❌ Error en POST /clientes/renovar/:id:", err.message);
+        console.error("❌ Error en POST /renovar:", err.message);
         return res.status(500).json({ error: err.message });
     }
 });
@@ -522,7 +556,8 @@ app.post('/clientes/renovar/:id', async (req, res) => {
 // Endpoint /api/renovar para POST y PUT
 const handleRenovarApi = async (req, res) => {
     try {
-        const { id, monto, cliente_nombre, plataforma } = req.body || {};
+        const { id, monto, cliente_nombre, plataforma, fecha_finalizacion, fecha_fin, fecha_vencimiento, fecha_inicio } = req.body || {};
+        const finalFechaVence = fecha_finalizacion || fecha_fin || fecha_vencimiento;
 
         if (!id) {
             return res.status(400).json({ success: false, message: 'Falta el ID del perfil para procesar la renovación.' });
@@ -532,10 +567,32 @@ const handleRenovarApi = async (req, res) => {
         try {
             await connection.beginTransaction();
 
-            await connection.query(
-                "UPDATE profiles SET fecha_vencimiento = DATE_ADD(NOW(), INTERVAL 30 DAY), cliente_nombre = ? WHERE id = ?",
-                [cliente_nombre, id]
-            );
+            if (finalFechaVence) {
+                await connection.query(
+                    "UPDATE profiles SET fecha_vencimiento = ?, cliente_nombre = ? WHERE id = ?",
+                    [finalFechaVence, cliente_nombre, id]
+                );
+                if (fecha_inicio) {
+                    await connection.query(
+                        "UPDATE suscripciones SET fecha_finalizacion = ?, vence = ?, fecha_inicio = ?, nombre_cliente = ? WHERE id = ?",
+                        [finalFechaVence, finalFechaVence, fecha_inicio, cliente_nombre, id]
+                    );
+                } else {
+                    await connection.query(
+                        "UPDATE suscripciones SET fecha_finalizacion = ?, vence = ?, nombre_cliente = ? WHERE id = ?",
+                        [finalFechaVence, finalFechaVence, cliente_nombre, id]
+                    );
+                }
+            } else {
+                await connection.query(
+                    "UPDATE profiles SET fecha_vencimiento = DATE_ADD(NOW(), INTERVAL 30 DAY), cliente_nombre = ? WHERE id = ?",
+                    [cliente_nombre, id]
+                );
+                await connection.query(
+                    "UPDATE suscripciones SET fecha_finalizacion = DATE_ADD(NOW(), INTERVAL 30 DAY), vence = DATE_ADD(NOW(), INTERVAL 30 DAY), nombre_cliente = ? WHERE id = ?",
+                    [cliente_nombre, id]
+                );
+            }
 
             await connection.query(
                 "INSERT INTO transactions (type, amount, platform, client_name, description, date) VALUES ('RENOVACION', ?, ?, ?, 'Renovación de perfil', NOW())",
@@ -566,8 +623,6 @@ const handleRenovarApi = async (req, res) => {
     }
 };
 
-app.post('/api/renovar', handleRenovarApi);
-app.put('/api/renovar', handleRenovarApi);
 
 // ==========================================
 //  📅 AUTOMATIZACIÓN DE NOTIFICACIONES

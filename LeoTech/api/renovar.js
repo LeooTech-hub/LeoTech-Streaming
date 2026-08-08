@@ -43,17 +43,28 @@ export default async function handler(req, res) {
       });
     }
 
+    const fecha_finalizacion = body.fecha_finalizacion || body.fecha_fin || body.fecha_vencimiento;
+    const fecha_inicio = body.fecha_inicio;
+
     const pool = typeof getDbPoolModule === 'function' ? getDbPoolModule() : getDbPoolModule;
 
-    // a) Extiende la vigencia del perfil en 30 días y actualiza el cliente en TiDB
+    // a) Extiende la vigencia del perfil y actualiza el cliente en TiDB
     let updateSuccess = false;
 
     // Intentar actualización en la tabla 'suscripciones'
     try {
-      const [subResult] = await pool.execute(
-        'UPDATE suscripciones SET fecha_finalizacion = DATE_ADD(NOW(), INTERVAL 30 DAY), nombre_cliente = ? WHERE id = ?',
-        [cliente_nombre, id]
-      );
+      let subQuery = 'UPDATE suscripciones SET fecha_finalizacion = DATE_ADD(NOW(), INTERVAL 30 DAY), vence = DATE_ADD(NOW(), INTERVAL 30 DAY), nombre_cliente = ? WHERE id = ?';
+      let subParams = [cliente_nombre, id];
+
+      if (fecha_finalizacion && fecha_inicio) {
+        subQuery = 'UPDATE suscripciones SET fecha_finalizacion = ?, vence = ?, fecha_inicio = ?, nombre_cliente = ? WHERE id = ?';
+        subParams = [fecha_finalizacion, fecha_finalizacion, fecha_inicio, cliente_nombre, id];
+      } else if (fecha_finalizacion) {
+        subQuery = 'UPDATE suscripciones SET fecha_finalizacion = ?, vence = ?, nombre_cliente = ? WHERE id = ?';
+        subParams = [fecha_finalizacion, fecha_finalizacion, cliente_nombre, id];
+      }
+
+      const [subResult] = await pool.execute(subQuery, subParams);
       console.log('[AUDIT SERVIDOR /api/renovar] Resultado TiDB suscripciones UPDATE:', subResult);
       if (subResult && subResult.affectedRows > 0) {
         updateSuccess = true;
@@ -64,10 +75,15 @@ export default async function handler(req, res) {
 
     // Intentar actualización en la tabla 'profiles' (si existe en la base de datos)
     try {
-      const [profResult] = await pool.execute(
-        'UPDATE profiles SET fecha_vencimiento = DATE_ADD(NOW(), INTERVAL 30 DAY), cliente_nombre = ? WHERE id = ?',
-        [cliente_nombre, id]
-      );
+      let profQuery = 'UPDATE profiles SET fecha_vencimiento = DATE_ADD(NOW(), INTERVAL 30 DAY), cliente_nombre = ? WHERE id = ?';
+      let profParams = [cliente_nombre, id];
+
+      if (fecha_finalizacion) {
+        profQuery = 'UPDATE profiles SET fecha_vencimiento = ?, cliente_nombre = ? WHERE id = ?';
+        profParams = [fecha_finalizacion, cliente_nombre, id];
+      }
+
+      const [profResult] = await pool.execute(profQuery, profParams);
       console.log('[AUDIT SERVIDOR /api/renovar] Resultado TiDB profiles UPDATE:', profResult);
       if (profResult && profResult.affectedRows > 0) {
         updateSuccess = true;
